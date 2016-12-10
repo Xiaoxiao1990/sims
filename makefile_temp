@@ -1,0 +1,23 @@
+
+CC = arm-none-linux-gnueabi-gcc
+#flag = -lpthread -static
+target = sim
+all:$(target)
+
+$(target):functions.o arbitrator.o sim.o spi.o
+	$(CC) $^ -o $@
+
+clean:
+	-rm $(target) *.o *.d
+
+.PHONY:clean
+
+sources = functions.c arbitrator.c sim.c spi.c sims.c
+
+include $(sources:.c=.d)
+
+%.d:%.c
+	set -e;rm -f $@;\
+	$(CC) -MM $< > $@.$$$$;\
+	sed 's,\($*\)\.o[ :]*,\1.o $@ :,g' < $@.$$$$ > $@;\
+	rm -f $@.$$$$
