@@ -140,7 +140,8 @@ void *sim_affair(void *arg)
 {
     DataType_TypeDef action;
     arg = arg;
-
+    int times;
+    uint8_t mcu,sim;
     thread_sleep(8);
 
     for(;;){
@@ -178,7 +179,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        thread_sleep(3);
+        thread_sleep(2);
 
         action = READ_STATE;
         mcu_read(0, action, NULL);
@@ -206,7 +207,19 @@ void *sim_affair(void *arg)
         mcu_read(106, action, &apdu1);
         mcu_read(107, action, &apdu1);
 
-        thread_sleep(2);
+        thread_sleep(6);
+        times++;
+        if((times%10) == 0){
+            for(mcu = 0;mcu < MCU_NUMS;mcu++){
+                for(sim = 0;sim < SIM_NUMS;sim++){
+                    fflush(MCUs[mcu].SIM[sim].log);
+                }
+            }
+             fflush(misc_log);
+        }
+        if(times == 100){
+             times = 0;
+        }
     }
 
     pthread_exit(NULL);

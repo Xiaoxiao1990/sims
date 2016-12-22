@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "log.h"
 #include "types.h"
@@ -13,6 +14,25 @@
 static char *log_path = "./Logs";
 
 #define MODE (S_IRWXU | S_IRWXG | S_IRWXO)
+
+int is_file_exist(const char *file_path)
+{
+     if(file_path == NULL)return 0;
+
+     if(access(file_path, F_OK) == 0)return 1;
+
+     return 0;
+}
+
+int is_dir_exist(const char *dir_path)
+{
+     if(dir_path == NULL)return 0;
+
+     if(opendir(dir_path) == NULL)return 0;
+
+     return 1;
+}
+
 
 static int mk_dir(const char *dir)
 {
@@ -23,6 +43,44 @@ static int mk_dir(const char *dir)
             return -1;
         }
     }
+
+    return 0;
+}
+
+int create_simlog(uint16_t sim_num)
+{
+    char sim_name[] = {
+        '.',
+        '/',
+        'L',
+        'o',
+        'g',
+        's',
+        '/',
+        's',
+        'i',
+        'm',
+        '0',//10
+        '0',
+        '0',
+        '0',
+        '.',
+        'l',
+        'o',
+        'g'
+    };
+    FILE *sim_log;
+
+    sim_name[10] = sim_num%10000/1000 + '0';
+    sim_name[11] = sim_num%1000/100 + '0';
+    sim_name[12] = sim_num%100/10 + '0';
+    sim_name[13] = sim_num%10 + '0';
+    sim_log = fopen(sim_name,"a");
+    if(sim_log == NULL){
+       printf("[Function:%s,Line:%d]Failed to create %s.", __func__, __LINE__, sim_name);
+       return -1;
+    }
+    MCUs[(sim_num-1)/SIM_NUMS].SIM[(sim_num-1)%SIM_NUMS].log = sim_log;
 
     return 0;
 }

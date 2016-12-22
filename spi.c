@@ -14,6 +14,7 @@
 #include "types.h"
 #include "functions.h"
 #include "arbitrator.h"
+#include "log.h"
 
 #define MAX_RETRY_TIME          (uint8_t)(3)
 #define MCU_ON_SPI_NUMS         (uint8_t)(54)
@@ -456,7 +457,7 @@ void * transfer(void *arg)
     tr.bits_per_word = spi_bits;
     //Transfer
     uint8_t mcu_num = 0;
-    uint8_t rx_state,tx_state;
+    //uint8_t rx_state,tx_state;
     int fd;
 
     //for each MCUs
@@ -464,27 +465,39 @@ void * transfer(void *arg)
         //Check buffer state first
 
         pthread_mutex_lock(&tmutex_mcu_buf_access);
-        rx_state = mcu->RxBuf.state;
-        tx_state = mcu->TxBuf.state;
         //Rxbuf could be used by frame_parse thread.
-        if(mcu->RxBuf.state != SPI_BUF_STATE_EMPTY){
-//            printf("MCU[%d]'s Rx buffer is busy,state = %d.\n",mcu_num,mcu->RxBuf.state);
+        switch(mcu->RxBuf.state){
+        case SPI_BUF_STATE_EMPTY:
+            mcu->RxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
+        case SPI_BUF_STATE_PACKAGING:
+        case SPI_BUF_STATE_TRANSMITING:
+        case SPI_BUF_STATE_READY://something wrong...
+            logs(misc_log, "Unexpected SPI Rx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", mcu->RxBuf.state, mcu_num);
+            SPI_Buf_init(&mcu->RxBuf);
+        case SPI_BUF_STATE_FULL:
+        default:
             pthread_mutex_unlock(&tmutex_mcu_buf_access);
             goto NEXT_MCU;
-        }else{
-            mcu->RxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
         }
 
         //TxBuf could be used by frame_package thread
-        if(mcu->TxBuf.state == SPI_BUF_STATE_PACKAGING){
-//          printf("MCU[%d]'s Tx buffer is busy,state = %d.\n",mcu_num,mcu->TxBuf.state);
-            //*
-            //*NOTE*
-            mcu->RxBuf.state = rx_state;
+        switch(mcu->TxBuf.state){
+        case SPI_BUF_STATE_EMPTY:
+        case SPI_BUF_STATE_READY:
+        case SPI_BUF_STATE_FULL:
+            mcu->TxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
+        case SPI_BUF_STATE_TRANSMITING://something wrong...
+            logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", mcu->TxBuf.state, mcu_num);
+            SPI_Buf_init(&mcu->TxBuf);
+        case SPI_BUF_STATE_PACKAGING:
+        default:
+            mcu->RxBuf.state = SPI_BUF_STATE_EMPTY;
             pthread_mutex_unlock(&tmutex_mcu_buf_access);
             goto NEXT_MCU;
-        }else{
-            mcu->TxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
         }
         pthread_mutex_unlock(&tmutex_mcu_buf_access);
 
@@ -504,20 +517,28 @@ void * transfer(void *arg)
         tr.rx_buf = (unsigned long)mcu->RxBuf.Buf;
 
         //Transmitting.
+//        if(mcu_num < 3){
+//            printf("MCU[%d]'s Tx Buffer:\n",mcu_num);
+//            print_array(mcu->TxBuf.Buf);
+//        }
         ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
         if(ret < 1){
-            printf("Can't send message to MCU[%d].\n",mcu_num/MCU_ON_SPI_NUMS);
+            printf("Can't send message to MCU[%d].\n",mcu_num);
+            logs(misc_log, "Can't send message to MCU[%d].\n",mcu_num);
             //something wrong,recovery the buffer state.
-            mcu->TxBuf.state = tx_state;
-            mcu->RxBuf.state = rx_state;
+            mcu->TxBuf.state = SPI_BUF_STATE_EMPTY;
+            mcu->RxBuf.state = SPI_BUF_STATE_EMPTY;
             goto NEXT_MCU;
         }
-
+//        if(mcu_num < 3){
+//            printf("MCU[%d]'s Tx Buffer:\n",mcu_num);
+//            print_array(mcu->RxBuf.Buf);
+//        }
         //Reset Tx buffer
         SPI_Buf_init(&mcu->TxBuf);
         //Set buffer flags.
         mcu->RxBuf.state = SPI_BUF_STATE_FULL;
-        mcu->TxBuf.state = SPI_BUF_STATE_EMPTY;
+        //mcu->TxBuf.state = SPI_BUF_STATE_EMPTY; //may collision
 //        printf("MCU[%d]'s Rx is full.\n",mcu_num);
 
 NEXT_MCU:

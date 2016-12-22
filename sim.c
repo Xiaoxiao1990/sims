@@ -9,6 +9,7 @@
 
 #include "types.h"
 #include "functions.h"
+#include "log.h"
 /**
  * @brief block_length_check
  * @param datatype
@@ -63,13 +64,14 @@ void * frame_package(void *arg)
         pthread_mutex_lock(&tmutex_mcu_buf_access);
         switch(Tx->state){
             case SPI_BUF_STATE_PACKAGING:
-                printf("MCU[%d]'s Tx buffer error.\n", mcu_num);
+                printf("Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
+                logs(misc_log, "Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
                 SPI_Buf_init(Tx);
             case SPI_BUF_STATE_TRANSMITING:
             case SPI_BUF_STATE_FULL:{
                 //do nothing here.just switch to next Tx buffer.
                 pthread_mutex_unlock(&tmutex_mcu_buf_access);
-                goto SKIP_PACKAGE;
+                goto NEXT_MCU;
             }break;
             case SPI_BUF_STATE_EMPTY:
             case SPI_BUF_STATE_READY:{
@@ -82,8 +84,6 @@ void * frame_package(void *arg)
         //printf("Package MCU[%d].\n",mcu_num);
         //Check whether have something to send to MCU.
         while(mcu->SIM_StateTblR | mcu->SIM_ResetTbl | mcu->SIM_StopTbl | mcu->SIM_APDUTblR | mcu->SIM_InfoTblR | mcu->VersionR | mcu->SIM_CheckErrR){
-            //printf("There is something new need to pack to the buffer.\n");
-            //SIM_NO. allocate
             if(mcu->SIM_StateTblR){
                 actionTbl = &(mcu->SIM_StateTblR);
                 sim_no = slot_parse(actionTbl);
@@ -126,26 +126,28 @@ void * frame_package(void *arg)
             data = mcu->SIM[sim_no - 1].Tx_APDU.APDU;
 
             block_len = block_length_check(datatype, apdu_len);
-            //re-calculate Tx buffer free space.
+            //calculate Tx buffer free space.
             if(real_state == SPI_BUF_STATE_EMPTY){//The first time come to this buffer.
-                Tx->Buf_Len_Left = SPI_TRANSFER_MTU - 6;//(5 + 1)
-
-                if(mcu->TxBuf.Buf_Len_Left < block_len){
+                if((Tx->Length + block_len + 5) >= SPI_TRANSFER_MTU){
                     //Illegal blocks, data length is too long.skip this block,clear the CMD flag.
                     printf("Illegal data block:Data block length[%d] great than Tx buffer maximum length[%d].\n", block_len, SPI_TRANSFER_MTU);
+                    logs(misc_log, "Illegal data block:Data block length[%d] great than Tx buffer maximum length[%d].\n", block_len, SPI_TRANSFER_MTU);
                     clear_flag(actionTbl, sim_no);
                     continue;
                 }
-            } else {//There is something packed in this buffer.
-                //re-calculate the Buffer space left.
-                Tx->Buf_Len_Left = SPI_TRANSFER_MTU - Tx->Length - 1;
-
-                if(mcu->TxBuf.Buf_Len_Left < block_len){
+            }
+            else if(real_state == SPI_BUF_STATE_READY){//There is something packed in this buffer.
+                if((Tx->Length + block_len) >= SPI_TRANSFER_MTU){
                     //There is no space to load this block,wait for next package.
                     printf("MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
-                    real_state = SPI_BUF_STATE_FULL;
-                    goto FRAME_END;
+                    logs(misc_log, "MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
+                    Tx->state = SPI_BUF_STATE_FULL;
+                    goto NEXT_MCU;
                 }
+            } else {
+                logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", mcu->TxBuf.state, mcu_num);
+                SPI_Buf_init(Tx);
+                goto NEXT_MCU;
             }
             //state:EMPTY,READY
             switch(real_state){
@@ -176,7 +178,6 @@ void * frame_package(void *arg)
 
                     //Others are all 1 byte length.
                     if(datatype == APDU_CMD){//Here,Tx->Length point to apdu data[].
-
                         for(i = 0;i < apdu_len;i++){
                             Tx->Buf[Tx->Length++] = data[i];
                             data[i] = 0xFF;//flush APDU tx buffer.
@@ -201,28 +202,27 @@ void * frame_package(void *arg)
                     Tx->checksum += Tx->Buf[3];
                     //data block end
                     Tx->Buf[Tx->Length] = Tx->checksum;
-                    real_state = SPI_BUF_STATE_READY;//for next block.
 
+                    real_state = SPI_BUF_STATE_READY;
                     //clear flag
                     clear_flag(actionTbl,sim_no);
                 }break;
                 case SPI_BUF_STATE_FULL://Never been here.
                 case SPI_BUF_STATE_PACKAGING://Never been here.
                 case SPI_BUF_STATE_TRANSMITING://Never been here.
+                default:
                     printf("MCU[%d]'s Tx buffer state has been changed by unknow ways!\n", mcu_num);
-                    //Attempt to repair it. but may lose some opreats.
+                    logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", real_state, mcu_num);
                     SPI_Buf_init(Tx);
-                    goto SKIP_PACKAGE;
-                break;
-                default:;
+                    goto NEXT_MCU;
+              break;
             }
-//            printf("MCU[%d]' Tx buffer:\n",mcu_num);
-//            print_array(Tx->Buf);puts("");
+            //printf("MCU[%d]Tx buffer:\n", mcu_num);
+            //print_array(Tx->Buf);
         }
-FRAME_END:
-        //After package
+
         Tx->state = real_state;
-SKIP_PACKAGE:
+NEXT_MCU:
         mcu_num++;
         if(mcu_num >= MCU_NUMS)mcu_num = 0;
         mcu = &MCUs[mcu_num];
