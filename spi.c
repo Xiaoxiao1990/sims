@@ -285,6 +285,7 @@ int SPI_Dev_Init(void)
 
     return 0;
 }
+
 /*
 //reentrant
 int frame_package(uint16_t mcu_num)
@@ -434,8 +435,8 @@ int frame_package(uint16_t mcu_num)
     }
     return 0;
 }
-*/
 
+*/
 /**
  * @brief transfer
  * @param mcu_num
@@ -456,7 +457,7 @@ void * transfer(void *arg)
     tr.bits_per_word = spi_bits;
     //Transfer
     uint8_t mcu_num = 0;
-    uint8_t rx_state,tx_state;
+//    uint8_t rx_state,tx_state;
     int fd;
 
     //for each MCUs
@@ -464,27 +465,37 @@ void * transfer(void *arg)
         //Check buffer state first
 
         pthread_mutex_lock(&tmutex_mcu_buf_access);
-        rx_state = mcu->RxBuf.state;
-        tx_state = mcu->TxBuf.state;
-        //Rxbuf could be used by frame_parse thread.
-        if(mcu->RxBuf.state != SPI_BUF_STATE_EMPTY){
-//            printf("MCU[%d]'s Rx buffer is busy,state = %d.\n",mcu_num,mcu->RxBuf.state);
-            pthread_mutex_unlock(&tmutex_mcu_buf_access);
-            goto NEXT_MCU;
-        }else{
+//        rx_state = mcu->RxBuf.state;
+//        tx_state = mcu->TxBuf.state;
+        //Rxbuf may used by frame_parse thread.
+        switch(mcu->RxBuf.state){
+        case SPI_BUF_STATE_EMPTY:
             mcu->RxBuf.state = SPI_BUF_STATE_TRANSMITING;
-        }
-
-        //TxBuf could be used by frame_package thread
-        if(mcu->TxBuf.state == SPI_BUF_STATE_PACKAGING){
-//          printf("MCU[%d]'s Tx buffer is busy,state = %d.\n",mcu_num,mcu->TxBuf.state);
-            //*
-            //*NOTE*
-            mcu->RxBuf.state = rx_state;
+            break;
+        case SPI_BUF_STATE_READY:
+        case SPI_BUF_STATE_PACKAGING:
+        case SPI_BUF_STATE_TRANSMITING://something wrong.
+            SPI_Buf_init(&mcu->RxBuf);
+        case SPI_BUF_STATE_FULL:
+        default:
             pthread_mutex_unlock(&tmutex_mcu_buf_access);
             goto NEXT_MCU;
-        }else{
-            mcu->TxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
+        }
+        //TxBuf could be used by frame_package thread
+        switch(mcu->TxBuf.state){
+        case SPI_BUF_STATE_EMPTY:
+        case SPI_BUF_STATE_READY:
+        case SPI_BUF_STATE_FULL:
+            mcu->RxBuf.state = SPI_BUF_STATE_TRANSMITING;
+            break;
+        case SPI_BUF_STATE_TRANSMITING://something wrong.
+            SPI_Buf_init(&mcu->RxBuf);
+        case SPI_BUF_STATE_PACKAGING:
+        default:
+            pthread_mutex_unlock(&tmutex_mcu_buf_access);
+            goto NEXT_MCU;
+            break;
         }
         pthread_mutex_unlock(&tmutex_mcu_buf_access);
 
@@ -506,11 +517,11 @@ void * transfer(void *arg)
         //Transmitting.
         ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
         if(ret < 1){
-            printf("Can't send message to MCU[%d].\n",mcu_num/MCU_ON_SPI_NUMS);
+            printf("Can't send message to MCU[%d].\n",mcu_num);
             //something wrong,recovery the buffer state.
-            mcu->TxBuf.state = tx_state;
-            mcu->RxBuf.state = rx_state;
-            goto NEXT_MCU;
+//            mcu->TxBuf.state = tx_state;
+//            mcu->RxBuf.state = rx_state;
+//            goto NEXT_MCU;
         }
 
         //Reset Tx buffer
@@ -518,7 +529,6 @@ void * transfer(void *arg)
         //Set buffer flags.
         mcu->RxBuf.state = SPI_BUF_STATE_FULL;
         mcu->TxBuf.state = SPI_BUF_STATE_EMPTY;
-//        printf("MCU[%d]'s Rx is full.\n",mcu_num);
 
 NEXT_MCU:
         mcu_num++;

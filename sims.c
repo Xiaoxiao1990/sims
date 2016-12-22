@@ -140,6 +140,7 @@ void *sim_affair(void *arg)
 {
     DataType_TypeDef action;
     arg = arg;
+    uint16_t i,j;
 
     thread_sleep(8);
 
@@ -206,7 +207,12 @@ void *sim_affair(void *arg)
         mcu_read(106, action, &apdu1);
         mcu_read(107, action, &apdu1);
 
-        thread_sleep(2);
+        thread_sleep(6);
+        for(i = 0;i < MCU_NUMS;i++){
+            for(j = 0;j < SIM_NUMS;j++)
+            fflush(MCUs[i].SIM[j].log);
+        }
+        fflush(misc_log);
     }
 
     pthread_exit(NULL);
