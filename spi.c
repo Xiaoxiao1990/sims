@@ -517,10 +517,6 @@ void * transfer(void *arg)
         tr.rx_buf = (unsigned long)mcu->RxBuf.Buf;
 
         //Transmitting.
-//        if(mcu_num < 3){
-//            printf("MCU[%d]'s Tx Buffer:\n",mcu_num);
-//            print_array(mcu->TxBuf.Buf);
-//        }
         ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
         if(ret < 1){
             printf("Can't send message to MCU[%d].\n",mcu_num);
@@ -530,10 +526,6 @@ void * transfer(void *arg)
             mcu->RxBuf.state = SPI_BUF_STATE_EMPTY;
             goto NEXT_MCU;
         }
-//        if(mcu_num < 3){
-//            printf("MCU[%d]'s Tx Buffer:\n",mcu_num);
-//            print_array(mcu->RxBuf.Buf);
-//        }
         //Reset Tx buffer
         SPI_Buf_init(&mcu->TxBuf);
         //Set buffer flags.

@@ -63,22 +63,21 @@ void * frame_package(void *arg)
         //Check Tx buffer state at first
         pthread_mutex_lock(&tmutex_mcu_buf_access);
         switch(Tx->state){
-            case SPI_BUF_STATE_PACKAGING:
-                printf("Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
-                logs(misc_log, "Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
-                SPI_Buf_init(Tx);
-            case SPI_BUF_STATE_TRANSMITING:
-            case SPI_BUF_STATE_FULL:{
-                //do nothing here.just switch to next Tx buffer.
-                pthread_mutex_unlock(&tmutex_mcu_buf_access);
-                goto NEXT_MCU;
-            }break;
             case SPI_BUF_STATE_EMPTY:
             case SPI_BUF_STATE_READY:{
                 real_state = Tx->state;
                 Tx->state = SPI_BUF_STATE_PACKAGING;
             }break;
-            default:;
+            case SPI_BUF_STATE_PACKAGING:
+                printf("Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
+                logs(misc_log, "Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
+                SPI_Buf_init(Tx);
+            case SPI_BUF_STATE_TRANSMITING:
+            case SPI_BUF_STATE_FULL:
+                //do nothing here.just switch to next Tx buffer.
+            default:
+                pthread_mutex_unlock(&tmutex_mcu_buf_access);
+            goto NEXT_MCU;
         }
         pthread_mutex_unlock(&tmutex_mcu_buf_access);
         //printf("Package MCU[%d].\n",mcu_num);
@@ -141,8 +140,8 @@ void * frame_package(void *arg)
                     //There is no space to load this block,wait for next package.
                     printf("MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
                     logs(misc_log, "MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
-                    Tx->state = SPI_BUF_STATE_FULL;
-                    goto NEXT_MCU;
+                    real_state = SPI_BUF_STATE_FULL;
+                    break;
                 }
             } else {
                 logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", mcu->TxBuf.state, mcu_num);

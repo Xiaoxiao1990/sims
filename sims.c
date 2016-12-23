@@ -145,6 +145,7 @@ void *sim_affair(void *arg)
     thread_sleep(8);
 
     for(;;){
+
         action = RESET_SIM;
         mcu_read(0, action, NULL);
         mcu_read(1, action, NULL);
@@ -197,7 +198,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        thread_sleep(4);
+        thread_sleep(3);
 
         action = APDU_CMD;
         mcu_read(0, action, &apdu1);
@@ -207,7 +208,7 @@ void *sim_affair(void *arg)
         mcu_read(106, action, &apdu1);
         mcu_read(107, action, &apdu1);
 
-        thread_sleep(6);
+        thread_sleep(5);
         times++;
         if((times%10) == 0){
             for(mcu = 0;mcu < MCU_NUMS;mcu++){
