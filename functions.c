@@ -300,7 +300,7 @@ void SIMs_Printer(void)
                     if(apdu->length == 2){//0x98 0x62
                         if((apdu->APDU[0]|apdu->APDU[1]) != 0xFA){
                             printf("Auth. ACK2 error.\n");
-                            logs(log_file, "SIM[%d] auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
+                            logs(log_file, "SIM[%3d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
                             fprint_array_r(log_file, apdu->APDU, apdu->length);
                             MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
                             break;
@@ -309,21 +309,21 @@ void SIMs_Printer(void)
                         if((apdu->APDU[1] | apdu->APDU[2]) == 0xFA){
                             if(apdu->APDU[0] != 0x60){//auth. failed
                                 printf("Auth. ACK2 error.\n");
-                                logs(log_file, "SIM[%d] auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
+                                logs(log_file, "SIM[%3d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
                                 fprint_array_r(log_file, apdu->APDU, apdu->length);
                                 MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
                                 break;
                             }
                         } else {//auth. failed
                             printf("Auth. ACK2 error.\n");
-                            logs(log_file, "SIM[%d] auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
+                            logs(log_file, "SIM[%3d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
                             fprint_array_r(log_file, apdu->APDU, apdu->length);
                             MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
                             break;
                         }
                     } else {//auth. failed
                         printf("Auth. ACK2 length error.\n");
-                        logs(log_file, "SIM[%d] auth. ACK2 length error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
+                        logs(log_file, "SIM[%3d] Auth. ACK2 length error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
                         fprint_array_r(log_file, apdu->APDU, apdu->length);
                         MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
                         break;

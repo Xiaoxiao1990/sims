@@ -11,7 +11,7 @@ MCU_TypeDef MCUs[MCU_NUMS];
 
 pthread_mutex_t tmutex_mcu_buf_access = PTHREAD_MUTEX_INITIALIZER;
 
-pthread_t tid[3], tid_sim_affair;
+pthread_t tid[4], tid_sim_affair;
 
 /**
  * @brief upload_apdu
@@ -143,7 +143,7 @@ void *sim_affair(void *arg)
     int times;
     uint8_t mcu,sim;
     thread_sleep(8);
-
+    //uint16_t sim_num = 2;
     for(;;){
 
         action = RESET_SIM;
@@ -153,6 +153,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
+//        sim_read(sim_num,action,NULL);
         thread_sleep(3);
 
         action = READ_SWHW;
@@ -162,7 +163,8 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        //thread_sleep(0);
+        //sim_read(sim_num,action,NULL);
+        thread_sleep(0);
 
         action = READ_INFO;
         mcu_read(0, action, NULL);
@@ -171,6 +173,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
+        //sim_read(sim_num,action,NULL);
         //thread_sleep(2);
 
         action = STOP_SIM;
@@ -180,6 +183,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
+        //sim_read(sim_num,action,NULL);
         thread_sleep(2);
 
         action = READ_STATE;
@@ -189,6 +193,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
+        //sim_read(sim_num,action,NULL);
         //thread_sleep(2);
 
         action = RESET_SIM;
@@ -198,6 +203,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
+        //sim_read(sim_num,action,NULL);
         thread_sleep(3);
 
         action = APDU_CMD;
@@ -207,6 +213,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, &apdu1);
         mcu_read(106, action, &apdu1);
         mcu_read(107, action, &apdu1);
+        //sim_read(sim_num,action,&apdu1);
 
         thread_sleep(5);
         times++;
@@ -272,18 +279,24 @@ int main(int argc, char *argv[])
     pthread_detach(tid[0]);
 
     //data transfer
-    printf("Start transmitting ... \n");
-    if((pthread_create(&tid[1], NULL, &transfer, NULL)) != 0){
+    printf("Start transmitting[spi0] ... \n");
+    if((pthread_create(&tid[1], NULL, &spi0, NULL)) != 0){
         perror("Create transfer thread error");
     }
     pthread_detach(tid[1]);
 
-    //data frame package
-    printf("Start packaging ... \n");
-    if((pthread_create(&tid[2], NULL, &frame_package, NULL)) != 0){
-        perror("Create frame_package thread error");
+    printf("Start transmitting[spi2] ... \n");
+    if((pthread_create(&tid[2], NULL, &spi2, NULL)) != 0){
+        perror("Create transfer thread error");
     }
     pthread_detach(tid[2]);
+
+    //data frame package
+    printf("Start packaging ... \n");
+    if((pthread_create(&tid[3], NULL, &frame_package, NULL)) != 0){
+        perror("Create frame_package thread error");
+    }
+    pthread_detach(tid[3]);
 
     //sim affairs
     printf("sim affairs ... \n");

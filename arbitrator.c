@@ -190,6 +190,7 @@ int Arbitrator_Init(void)
  * @param trys
  * @return
  */
+/*
 static int release_arbitrator(uint8_t arbi, uint8_t trys)
 {
     int retry = 0;
@@ -225,7 +226,7 @@ static int release_arbitrator(uint8_t arbi, uint8_t trys)
 
     return 0;
 }
-
+*/
 /**
  * @brief Arbitrator
  * @param mcu_num
@@ -236,47 +237,9 @@ int Arbitrator(uint8_t mcu_num)
     int fd;
     uint8_t result = -1;
 
-//    printf("Select MCU group.\n");
-    if(mcu_num == MCU_GROUP_0){
-        //COMLETE MCU1/MCU2
-        if(-1 == release_arbitrator(1, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 1 failed.\n");
-            return -1;
-        }
-        if(-1 == release_arbitrator(2, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 2 failed.\n");
-            return -1;
-        }
+    if(mcu_num < 36){          //0~35
         fd = Arbi_fd[0];
-    }
-    else if(mcu_num < MCU_GROUP_1){          //0~35
-        fd = Arbi_fd[0];
-    }else if(mcu_num == MCU_GROUP_1){        //36
-        //COMLETE MCU0/MCU2
-        if(-1 == release_arbitrator(0, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 0 failed.\n");
-            return -1;
-        }
-        if(-1 == release_arbitrator(2, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 2 failed.\n");
-            return -1;
-        }
-        fd = Arbi_fd[1];
-    }else if(mcu_num < MCU_GROUP_2){         //36~71
-        fd = Arbi_fd[1];
-
-    }else if(mcu_num == MCU_GROUP_2){        //72
-        //COMLETE MCU0/MCU1
-        if(-1 == release_arbitrator(0, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 0 failed.\n");
-            return -1;
-        }
-        if(-1 == release_arbitrator(1, MAX_RETYR_TIMES)){
-            printf("Release arbitrator 1 failed.\n");
-            return -1;
-        }
-        fd = Arbi_fd[2];
-    }else if(mcu_num < MCU_GROUP_3){        //72~107
+    }else if(mcu_num > 71){        //72~107
         fd = Arbi_fd[2];
     }else{
         //mcu_num error
@@ -285,7 +248,7 @@ int Arbitrator(uint8_t mcu_num)
 
     //send mcu_num
     uint8_t retry_times = 0;
-repeate:
+repeat:
 
     if(++retry_times > MAX_RETYR_TIMES)return -1;
 
@@ -300,11 +263,11 @@ repeate:
         //mcu_num error retry
     case ARBI_TRANS_RESET://never been here
         //reset all mcus
-        goto repeate;
+        goto repeat;
         break;
     default:
         if(result != (mcu_num % MCU_ON_ARBI_NUMS)){//error,try again
-            goto repeate;
+            goto repeat;
         }
         break;
     }

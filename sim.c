@@ -63,21 +63,22 @@ void * frame_package(void *arg)
         //Check Tx buffer state at first
         pthread_mutex_lock(&tmutex_mcu_buf_access);
         switch(Tx->state){
-            case SPI_BUF_STATE_EMPTY:
-            case SPI_BUF_STATE_READY:{
-                real_state = Tx->state;
-                Tx->state = SPI_BUF_STATE_PACKAGING;
-            }break;
             case SPI_BUF_STATE_PACKAGING:
                 printf("Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
                 logs(misc_log, "Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
                 SPI_Buf_init(Tx);
             case SPI_BUF_STATE_TRANSMITING:
-            case SPI_BUF_STATE_FULL:
+            case SPI_BUF_STATE_FULL:{
                 //do nothing here.just switch to next Tx buffer.
-            default:
                 pthread_mutex_unlock(&tmutex_mcu_buf_access);
-            goto NEXT_MCU;
+                goto NEXT_MCU;
+            }break;
+            case SPI_BUF_STATE_EMPTY:
+            case SPI_BUF_STATE_READY:{
+                real_state = Tx->state;
+                Tx->state = SPI_BUF_STATE_PACKAGING;
+            }break;
+            default:;
         }
         pthread_mutex_unlock(&tmutex_mcu_buf_access);
         //printf("Package MCU[%d].\n",mcu_num);
@@ -140,11 +141,11 @@ void * frame_package(void *arg)
                     //There is no space to load this block,wait for next package.
                     printf("MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
                     logs(misc_log, "MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
-                    real_state = SPI_BUF_STATE_FULL;
-                    break;
+                    Tx->state = SPI_BUF_STATE_FULL;
+                    goto NEXT_MCU;
                 }
             } else {
-                logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", mcu->TxBuf.state, mcu_num);
+                logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", real_state, mcu_num);
                 SPI_Buf_init(Tx);
                 goto NEXT_MCU;
             }
@@ -288,19 +289,15 @@ void * frame_parse(void *arg)
 
     for(;;){
         //check whether the RX buffer is busy.set full by transer, and flush in this function.
-
         switch(Rx->state){
-            case  SPI_BUF_STATE_TRANSMITING:
+            case SPI_BUF_STATE_READY:
             case SPI_BUF_STATE_PACKAGING:
-            case SPI_BUF_STATE_EMPTY:{
-                //Nothing to do.
-                //printf("MCU[%d]'s Rx buffer seems nothing to parse.\n",mcu_num);
+            case SPI_BUF_STATE_EMPTY:
+            case  SPI_BUF_STATE_TRANSMITING:{
+                //Nothing to do. correct in spi transfer.
                 goto PARSE_END;
-            }break;
-            case SPI_BUF_STATE_READY://never been here.
+            }break;           
             case SPI_BUF_STATE_FULL:{
-            //printf("Parsing MCU[%d]'s...\n",mcu_num);
-            //printf("size of Rx->buf : %d\n", (int)ARRAY_SIZE(Rx->Buf));
                 for(i = 0;i < ARRAY_SIZE(Rx->Buf);i++){//Frame start
                     switch(step){
                         case PARSE_FRAME_HEAD1:{
@@ -449,7 +446,6 @@ FRAME_END:
                 sublen = 0;
                 //Reset buffer
                 SPI_Buf_init(Rx);
-                Rx->state = SPI_BUF_STATE_EMPTY;
             }break;
             default:;
         }//parse end
@@ -461,7 +457,7 @@ PARSE_END:
         Rx = &(mcu->RxBuf);
     }
 
-    printf("Parse frame error!\n");
+    logs(misc_log, "Frame parse thread abort by unkonw ways!\n");
     pthread_exit(NULL);
 }
 
