@@ -16,7 +16,7 @@
  * @param data_len
  * @return
  */
-static int block_length_check(DataType_TypeDef datatype,uint8_t data_len)
+int block_length_check(DataType_TypeDef datatype,uint8_t data_len)
 {
     switch(datatype)
     {
@@ -43,6 +43,7 @@ static int block_length_check(DataType_TypeDef datatype,uint8_t data_len)
  * @return
  */
 
+/*
 void * frame_package(void *arg)
 {//Running in an independent thread.
     uint8_t i;
@@ -178,8 +179,10 @@ void * frame_package(void *arg)
 
                     //Others are all 1 byte length.
                     if(datatype == APDU_CMD){//Here,Tx->Length point to apdu data[].
+                        //logs(mcu->SIM[sim_no-1].log,"APDU[%d] send to sim:\n", apdu_len);
+                        //fprint_array_r(mcu->SIM[sim_no-1].log, data, apdu_len);
                         for(i = 0;i < apdu_len;i++){
-                            Tx->Buf[Tx->Length++] = data[i];
+                            Tx->Buf[Tx->Length++] = data[i];    
                             data[i] = 0xFF;//flush APDU tx buffer.
                             Tx->pre_sum += data[i];
                         }
@@ -231,240 +234,12 @@ NEXT_MCU:
     printf("Package frame error!\n");
     pthread_exit(NULL);
 }
-
-
-/******************************************************************************************
- * Function:Frame parse
- * Params:Rx_Buf
- * ***************************************************************************************/
-#define PARSE_FRAME_HEAD1                                   (uint8_t)0x00
-#define PARSE_FRAME_HEAD2                                   (uint8_t)0x01
-#define PARSE_TOTAL_LENGTH                                  (uint8_t)0x02
-#define PARSE_BLOCK_NUMS                                    (uint8_t)0x03
-#define PARSE_BLOCK_SLOT                                    (uint8_t)0x04
-#define PARSE_BLOCK_SUBLEN                                  (uint8_t)0x05
-#define PARSE_BLOCK_TYPE                                    (uint8_t)0x06
-#define PARSE_BLOCK_DATA                                    (uint8_t)0x07
-#define PARSE_FRAME_CHECKSUM                                (uint8_t)0x08
-/******************************************************************************************
- * Function: Set flags while get information from card boards.
- * ***************************************************************************************/
-static void set_flag(uint8_t *ActionTbl, uint8_t slot)
-{
-    //printf("flag before set:%d\n",*ActionTbl);
-    switch(slot)
-    {
-        case SIM_NO_ALL:*ActionTbl |= SIM_NO_ALL;break;
-        case SIM_NO_1:*ActionTbl |= SIM_NO_1_BIT;break;
-        case SIM_NO_2:*ActionTbl |= SIM_NO_2_BIT;break;
-        case SIM_NO_3:*ActionTbl |= SIM_NO_3_BIT;break;
-        case SIM_NO_4:*ActionTbl |= SIM_NO_4_BIT;break;
-        case SIM_NO_5:*ActionTbl |= SIM_NO_5_BIT;break;
-        default:;
-    }
-    //printf("flag after set:%d\n",*ActionTbl);
-}
-
-/**
- * @brief frame_parse
- * data frame from mcu's parse ,run in a depend thread
- * @param mcu
- * @return
- */
-void * frame_parse(void *arg)
-{
-    uint16_t total_length,
-            i = 0,
-            blocks = 0,
-            slot = 0,
-            sublen = 0,
-            k = 0;
-    uint8_t step = 0, mcu_num = 0;
-
-    DataType_TypeDef datatype;
-    MCU_TypeDef *mcu = &MCUs[0];
-    SPI_Buf_TypeDef *Rx = &(mcu->RxBuf);
-
-    arg = arg;//clear complier warnning.
-
-    for(;;){
-        //check whether the RX buffer is busy.set full by transer, and flush in this function.
-        switch(Rx->state){
-            case SPI_BUF_STATE_READY:
-            case SPI_BUF_STATE_PACKAGING:
-            case SPI_BUF_STATE_EMPTY:
-            case  SPI_BUF_STATE_TRANSMITING:{
-                //Nothing to do. correct in spi transfer.
-                goto PARSE_END;
-            }break;           
-            case SPI_BUF_STATE_FULL:{
-                for(i = 0;i < ARRAY_SIZE(Rx->Buf);i++){//Frame start
-                    switch(step){
-                        case PARSE_FRAME_HEAD1:{
-                            if(Rx->Buf[i] == DATA_FRAME_HEAD1){
-                                step++;
-                            }
-                        }break;
-                        case PARSE_FRAME_HEAD2:{
-                            if(Rx->Buf[i] == DATA_FRAME_HEAD2){
-                                step++;
-                            }
-                            else step--;
-                        }break;
-                        case PARSE_TOTAL_LENGTH:{
-                            total_length = (uint16_t)Rx->Buf[i++] << 8;
-                            total_length += (uint16_t)Rx->Buf[i];
-                            if(total_length < 2){//data length should be great than 2 bytes.
-                                printf("Frame length is too short:[%d btyes].\n",total_length);
-                                goto FRAME_END;
-                            } else if(total_length > ARRAY_SIZE(Rx->Buf)) {
-                                printf("Frame length is too long:[%d btyes].\n",total_length);
-                                goto FRAME_END;
-                            } else{
-                                //Calculate checksum.
-#ifdef CHECKSUM_ON
-                                uint16 j = 0;
-                                uint8_t checksum = 0;
-                                for(j = 2;j < (total_length + 2);j++){//start frome [2] to [2+total_length]
-                                    checksum += Rx->Buf[j];
-                                }
-                                if(checksum != Rx->Buf[j]){
-                                    printf("Received Data Checksum Error!\n");
-                                    //report an error?
-                                    goto FRAME_END;
-                                }
-#endif
-                                step++;
-                            }
-                        }break;
-                        case PARSE_BLOCK_NUMS:{
-                            blocks = Rx->Buf[i];
-                            if(blocks < 1){//data blocks should be great than 0.
-                                printf("Data blocks should be more than 0. Here blocks = %d.\n", blocks);
-                                goto FRAME_END;
-                            } else step++;
-                        }break;
-                        case PARSE_BLOCK_SLOT:{
-                            slot = Rx->Buf[i];
-                            step++;
-                        }break;
-                        case PARSE_BLOCK_SUBLEN:{
-                            sublen = Rx->Buf[i];
-                            step++;
-                        }break;
-                        case PARSE_BLOCK_TYPE:{
-                            datatype = Rx->Buf[i];
-                            step++;
-#ifdef CODING_DEBUG_NO_PRINT
-                            printf("Datatype:");
-                            switch(datatype){
-                                case DUMMY_READ:puts("DUMMY_READ");break;
-                                case READ_SWHW:puts("READ_SWHW");break;
-                                case STOP_SIM:puts("STOP_SIM");break;
-                                case RESET_SIM:puts("RESET_SIM");break;
-                                case READ_INFO:puts("READ_INFO");break;
-                                case READ_STATE:puts("READ_STATE");break;
-                                case APDU_CMD:puts("APDU_CMD");break;
-                                case TRANS_ERR:puts("TRANS_ERR");break;
-                                default:;
-                            }
-#endif
-                        }break;
-                        case PARSE_BLOCK_DATA:{
-                            switch (datatype){
-                                case DUMMY_READ:break;          //Never been here
-                                case READ_SWHW:{
-                                    mcu->SoftWare_Version[0] = Rx->Buf[i++];
-                                    mcu->SoftWare_Version[1] = Rx->Buf[i++];
-                                    mcu->SoftWare_Version[2] = Rx->Buf[i++];
-                                    mcu->HardWare_Version[0] = Rx->Buf[i++];
-                                    mcu->HardWare_Version[1] = Rx->Buf[i++];
-                                    mcu->HardWare_Version[2] = Rx->Buf[i];
-
-                                    //Get new version
-                                    mcu->VersionN |= 0x1F;
-                                }break;
-                                case STOP_SIM:break;            //Never been here
-                                case RESET_SIM:break;           //Never been here
-                                case READ_INFO:{//Read SIM Info. check the slot number.
-                                    if((slot == 0) || (slot > SIM_NO_5)){
-                                        printf("MCU[%d]'s data length:%d\n",mcu_num, total_length);
-                                        printf("MCU[%d]'s Data type is SIM info. But slot = %d.\nRx->Buf:\n",mcu_num, slot);
-                                        print_array(Rx->Buf);
-                                        printf("============================================\n");
-                                        //this block is broken, but there have something in the end.
-                                        //there have two ways, use the data in the end,else throw it.
-                                        for(k = 0;k < ICCID_LENGTH;k++)i++;
-                                        for(k = 0;k < IMSI_LENGTH;k++)i++;
-                                        //i++;
-                                        // goto FRAME_END;
-                                        break;
-                                    }
-                                    //restore SIM info.
-                                    for(k = 0;k < ICCID_LENGTH;k++){//ICCID
-                                        mcu->SIM[slot-1].ICCID[k] = Rx->Buf[i++];
-                                    }
-                                    for(k = 0;k < IMSI_LENGTH;k++){//IMSI
-                                        mcu->SIM[slot-1].IMSI[k] = Rx->Buf[i++];
-                                    }
-                                    //AD may needn't
-                                    mcu->SIM[slot-1].AD = Rx->Buf[i];
-                                    set_flag(&mcu->SIM_InfoTblN,slot);
-                                }break;
-                                case READ_STATE:{
-                                //SIM state. check slot ?
-                                    mcu->SIM[slot-1].state = Rx->Buf[i];
-                                    set_flag(&mcu->SIM_StateTblN,slot);
-                                }break;
-                                case APDU_CMD:{
-                                //may be should check slot.
-                                    for(k = 0;k < (sublen - 1);k++)mcu->SIM[slot-1].RX_APDU.APDU[k] = Rx->Buf[i++];
-                                    mcu->SIM[slot-1].RX_APDU.length = k;
-                                    set_flag(&mcu->SIM_APDUTblN,slot);
-                                    i--;//back to data(use for PARSE_FRAME_CHECKSUM
-                                }break;
-                                case TRANS_ERR:{//may be ... never use the function. just redo it if time out,determined by host.
-                                    set_flag(&mcu->SIM_CheckErrN,slot);
-                                }break;               //Maybe should do something here.
-                                default:;
-                            }
-                            if(--blocks > 0)step = PARSE_BLOCK_SLOT;
-                            else step = PARSE_FRAME_HEAD1;
-                        }break;
-                        case PARSE_FRAME_CHECKSUM:{
-                            //This state has been do before parsing information.
-                            //Here just recovery the status machine.
-                        }break;
-                        default:;
-                    }
-                }//Frame end
-FRAME_END:
-                //reset local variables.
-                step = PARSE_FRAME_HEAD1;
-                slot = 0;
-                total_length = 0;
-                sublen = 0;
-                //Reset buffer
-                SPI_Buf_init(Rx);
-            }break;
-            default:;
-        }//parse end
-
-PARSE_END:
-        mcu_num++;
-        if(mcu_num >= MCU_NUMS)mcu_num = 0;
-        mcu = &MCUs[mcu_num];
-        Rx = &(mcu->RxBuf);
-    }
-
-    logs(misc_log, "Frame parse thread abort by unkonw ways!\n");
-    pthread_exit(NULL);
-}
+*/
 
 static void SIM_info_init(SIM_TypeDef *sim)
 {
     sim->AD = 0x00;
-    sim->state = SIM_STATE_NOSIM;
+    sim->state = SIM_STATE_NOCARD;
     flush_array(sim->ICCID);
     flush_array(sim->IMSI);
     flush_array(sim->RX_APDU.APDU);
@@ -472,57 +247,51 @@ static void SIM_info_init(SIM_TypeDef *sim)
     flush_array(sim->Tx_APDU.APDU);
     sim->Tx_APDU.length = 0x00;
     sim->auth_step = AUTH_STAGE_DEFAULT;
+    sim->apdu_enable = DISABLE;
+    sim->apdu_timeout = APDU_TIME_OUT;
+    sim->log = NULL;
+}
+
+void MCU_Init(MCU_TypeDef *mcu)
+{
+    uint8_t j;
+    //SIM information initial
+    for(j = 0;j < SIM_NUMS;j++){
+        SIM_info_init(&mcu->SIM[j]);
+    }
+    //Hardware version initial
+    mcu->HardWare_Version[0] = 0x00;
+    mcu->HardWare_Version[1] = 0x00;
+    mcu->HardWare_Version[2] = 0x00;
+    //Software version initial
+    mcu->SoftWare_Version[0] = 0x00;
+    mcu->SoftWare_Version[1] = 0x00;
+    mcu->SoftWare_Version[2] = 0x00;
+    //RxBuf initial
+    SPI_Buf_init(&mcu->RxBuf);
+    SPI_Buf_init(&mcu->TxBuf);
+    //MCU events flags initial
+    mcu->SIM_APDUTblR = 0x00;
+    mcu->SIM_APDUTblN = 0x00;
+    mcu->SIM_CheckErrR = 0x00;
+    mcu->SIM_CheckErrN = 0x00;
+    mcu->SIM_InfoTblR = 0x00;
+    mcu->SIM_InfoTblN = 0x00;
+    mcu->SIM_StateTblR = 0x00;
+    mcu->SIM_StateTblN = 0x00;
+    mcu->VersionR = 0x00;
+    mcu->VersionN = 0x00;
+    mcu->heartbeat = MCU_TIME_OUT;
 }
 
 void SIMs_Table_init(void)
 {
-    uint16_t i = 0,j = 0;
+    uint16_t i = 0;
+    MCU_TypeDef *mcu;
     for(i = 0;i < MCU_NUMS;i++)
     {
-        //SIM information initial
-        for(j = 0;j < SIM_NUMS;j++){
-            SIM_info_init(&MCUs[i].SIM[j]);
-        }
-        //Hardware version initial
-        MCUs[i].HardWare_Version[0] = 0x00;
-        MCUs[i].HardWare_Version[1] = 0x00;
-        MCUs[i].HardWare_Version[2] = 0x00;
-        //Software version initial
-        MCUs[i].SoftWare_Version[0] = 0x00;
-        MCUs[i].SoftWare_Version[1] = 0x00;
-        MCUs[i].SoftWare_Version[2] = 0x00;
-        //RxBuf initial
-        SPI_Buf_init(&MCUs[i].RxBuf);
-        SPI_Buf_init(&MCUs[i].TxBuf);
-        /*
-        MCUs[i].RxBuf.block = 0x00;
-        MCUs[i].RxBuf.Length = 0x00;
-        MCUs[i].RxBuf.Buf_Len_Left = SPI_TRANSFER_MTU;
-        MCUs[i].RxBuf.checksum = 0x00;
-        MCUs[i].RxBuf.pre_sum = 0x00;
-        MCUs[i].RxBuf.state = SPI_BUF_STATE_EMPTY;
-        flush_array(MCUs[i].RxBuf.Buf);
-        //TxBuf initial
-        MCUs[i].TxBuf.block = 0x00;
-        MCUs[i].TxBuf.Length = 0x00;
-        MCUs[i].TxBuf.Buf_Len_Left = SPI_TRANSFER_MTU;
-        MCUs[i].TxBuf.checksum = 0x00;
-        MCUs[i].TxBuf.pre_sum = 0x00;
-        MCUs[i].TxBuf.state = SPI_BUF_STATE_EMPTY;
-        flush_array(MCUs[i].TxBuf.Buf);
-        */
-
-        //MCU events flags initial
-        MCUs[i].SIM_APDUTblR = 0x00;
-        MCUs[i].SIM_APDUTblN = 0x00;
-        MCUs[i].SIM_CheckErrR = 0x00;
-        MCUs[i].SIM_CheckErrN = 0x00;
-        MCUs[i].SIM_InfoTblR = 0x00;
-        MCUs[i].SIM_InfoTblN = 0x00;
-        MCUs[i].SIM_StateTblR = 0x00;
-        MCUs[i].SIM_StateTblN = 0x00;
-        MCUs[i].VersionR = 0x00;
-        MCUs[i].VersionN = 0x00;
+        mcu = &MCUs[i];
+        MCU_Init(mcu);
 
 #ifdef CODING_DEBUG_NO_PRINT
         printf("===================== MCU[%d] =====================\n",i+1);

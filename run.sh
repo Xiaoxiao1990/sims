@@ -1,5 +1,5 @@
 #!/bin/bash
 make clean
-make
-#rm *.d
-scp sim root@172.16.0.84:/root/
+make;
+rm *.d *.o
+scp sim root@172.16.0.91:/root

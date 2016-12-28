@@ -9,9 +9,7 @@
 
 MCU_TypeDef MCUs[MCU_NUMS];
 
-pthread_mutex_t tmutex_mcu_buf_access = PTHREAD_MUTEX_INITIALIZER;
-
-pthread_t tid[4], tid_sim_affair;
+pthread_t tid[4], tid_sim_affair, tid_timewheel;
 
 /**
  * @brief upload_apdu
@@ -116,7 +114,7 @@ APDU_BUF_TypeDef apdu2 = {
    34
 };
 
-void thread_sleep(uint16_t sec)
+void thread_sleep(uint32_t sec)
 {
     pthread_mutex_t tmutex_sleep = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t tcond_sleep = PTHREAD_COND_INITIALIZER;
@@ -136,25 +134,28 @@ void thread_sleep(uint16_t sec)
     pthread_mutex_destroy(&tmutex_sleep);
 }
 
-void *sim_affair(void *arg)
+void * sim_affair(void *arg)
 {
+//    MCU_TypeDef *mcu;
     DataType_TypeDef action;
-    arg = arg;
-    int times;
-    uint8_t mcu,sim;
-    thread_sleep(8);
-    //uint16_t sim_num = 2;
-    for(;;){
+//    FILE *log_file;
+//    APDU_BUF_TypeDef *apdu;
+//    uint8_t *actionTbl;
+//    uint8_t i, j, sim_no;
+//    uint16_t abs_sim_no;
 
-        action = RESET_SIM;
+    arg = arg;
+
+    thread_sleep(5);
+    while(1){
+        action = READ_STATE;
         mcu_read(0, action, NULL);
         mcu_read(1, action, NULL);
         mcu_read(2, action, NULL);
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-//        sim_read(sim_num,action,NULL);
-        thread_sleep(3);
+        thread_sleep(1);
 
         action = READ_SWHW;
         mcu_read(0, action, NULL);
@@ -163,8 +164,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        //sim_read(sim_num,action,NULL);
-        thread_sleep(0);
+        thread_sleep(1);
 
         action = READ_INFO;
         mcu_read(0, action, NULL);
@@ -173,8 +173,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        //sim_read(sim_num,action,NULL);
-        //thread_sleep(2);
+        thread_sleep(1);
 
         action = STOP_SIM;
         mcu_read(0, action, NULL);
@@ -183,18 +182,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        //sim_read(sim_num,action,NULL);
-        thread_sleep(2);
-
-        action = READ_STATE;
-        mcu_read(0, action, NULL);
-        mcu_read(1, action, NULL);
-        mcu_read(2, action, NULL);
-        mcu_read(105, action, NULL);
-        mcu_read(106, action, NULL);
-        mcu_read(107, action, NULL);
-        //sim_read(sim_num,action,NULL);
-        //thread_sleep(2);
+        thread_sleep(1);
 
         action = RESET_SIM;
         mcu_read(0, action, NULL);
@@ -203,8 +191,7 @@ void *sim_affair(void *arg)
         mcu_read(105, action, NULL);
         mcu_read(106, action, NULL);
         mcu_read(107, action, NULL);
-        //sim_read(sim_num,action,NULL);
-        thread_sleep(3);
+        thread_sleep(5);
 
         action = APDU_CMD;
         mcu_read(0, action, &apdu1);
@@ -213,23 +200,34 @@ void *sim_affair(void *arg)
         mcu_read(105, action, &apdu1);
         mcu_read(106, action, &apdu1);
         mcu_read(107, action, &apdu1);
-        //sim_read(sim_num,action,&apdu1);
-
         thread_sleep(5);
-        times++;
-        if((times%10) == 0){
+    }
+}
+
+
+void *timerwheel(void *arg)
+{
+    uint8_t mcu,sim;
+    uint8_t logautosave_time = 0;
+    SIM_TypeDef SIM;
+
+    arg = arg;
+
+    while(1){
+        thread_sleep(1);
+
+        //auto save log file per min.
+        if((logautosave_time++) >= 60){
+            logautosave_time = 0;
             for(mcu = 0;mcu < MCU_NUMS;mcu++){
                 for(sim = 0;sim < SIM_NUMS;sim++){
-                    fflush(MCUs[mcu].SIM[sim].log);
+                    SIM = MCUs[mcu].SIM[sim];
+                    fflush(SIM.log);
                 }
             }
              fflush(misc_log);
         }
-        if(times == 100){
-             times = 0;
-        }
     }
-
     pthread_exit(NULL);
 }
 
@@ -270,14 +268,6 @@ int main(int argc, char *argv[])
     }
     printf("OK!\n");
 
-    pthread_mutex_init(&tmutex_mcu_buf_access, NULL);
-    //data frame parse thread
-    printf("Start parsing ... \n");
-   if((pthread_create(&tid[0], NULL, &frame_parse, NULL)) != 0){
-        perror("Create parse thread error");
-    }
-    pthread_detach(tid[0]);
-
     //data transfer
     printf("Start transmitting[spi0] ... \n");
     if((pthread_create(&tid[1], NULL, &spi0, NULL)) != 0){
@@ -291,27 +281,24 @@ int main(int argc, char *argv[])
     }
     pthread_detach(tid[2]);
 
-    //data frame package
-    printf("Start packaging ... \n");
-    if((pthread_create(&tid[3], NULL, &frame_package, NULL)) != 0){
-        perror("Create frame_package thread error");
-    }
-    pthread_detach(tid[3]);
-
-    //sim affairs
-    printf("sim affairs ... \n");
+    //time wheel
+    printf("Start sim affairs ... \n");
     if((pthread_create(&tid_sim_affair, NULL, &sim_affair, NULL)) != 0){
-        perror("Create frame_package thread error");
+        perror("Create time wheel thread error");
     }
     pthread_detach(tid_sim_affair);
 
+    //time wheel
+    printf("Start time wheel ... \n");
+    if((pthread_create(&tid_timewheel, NULL, &timerwheel, NULL)) != 0){
+        perror("Create time wheel thread error");
+    }
+    pthread_detach(tid_timewheel);
+
     printf("I/O message: \n");
     for(;;){//sim stuff
-        //how to use OR manager a sim card ?
-        //debug info
         SIMs_Printer();
     }
-    pthread_mutex_destroy(&tmutex_mcu_buf_access);
 
     if(0 != close_logs()){
         return -1;

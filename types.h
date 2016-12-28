@@ -10,14 +10,21 @@
 #include <sys/time.h>
 #include <stdio.h>
 
+/******************* sims.c ***********************/
+#define ENABLE                                          (uint8_t)1
+#define DISABLE                                         (uint8_t)0
+#define APDU_TIME_OUT                                   (uint8_t)5
+#define MCU_TIME_OUT                                    (uint8_t)5
 /******************* spi.c ************************/
 #define SPI_TRANSFER_MTU                                (uint16_t)300
+#define DATA_FRAME_HEAD1                                (uint8_t)0xA5
+#define DATA_FRAME_HEAD2                                (uint8_t)0xA5
 //SPI Buffer state
-#define SPI_BUF_STATE_EMPTY                             (uint8_t)0x00
-#define SPI_BUF_STATE_PACKAGING                         (uint8_t)0x01
-#define SPI_BUF_STATE_READY                             (uint8_t)0x02
-#define SPI_BUF_STATE_FULL                              (uint8_t)0x03
-#define SPI_BUF_STATE_TRANSMITING                       (uint8_t)0x04
+//#define SPI_BUF_STATE_EMPTY                             (uint8_t)0x00
+//#define SPI_BUF_STATE_PACKAGING                         (uint8_t)0x01
+//#define SPI_BUF_STATE_READY                             (uint8_t)0x02
+//#define SPI_BUF_STATE_FULL                              (uint8_t)0x03
+//#define SPI_BUF_STATE_TRANSMITING                       (uint8_t)0x04
 //SIM_BIT & No.
 #define SIM_NO_1_BIT                                    (uint8_t)0x01
 #define SIM_NO_2_BIT                                    (uint8_t)0x02
@@ -33,11 +40,23 @@
 #define SIM_NO_4                                        (uint8_t)0x04
 #define SIM_NO_5                                        (uint8_t)0x05
 
+//SIM state
+#define SIM_STATE_NORMAL                                (uint8_t)0xAA
+#define SIM_STATE_NOCARD                                (uint8_t)0x00
+#define SIM_STATE_STOPED                                (uint8_t)0x55
+#define SIM_STATE_NO_ATR                                (uint8_t)0xF0
+#define SIM_STATE_NOIMSI                                (uint8_t)0xF1
+#define SIM_STATE_NOICCD                                (uint8_t)0xF2
+
+
+//typedef enum{
+//    NORMAL = 0xAA,
+
+//}SIM_STATE_TypeDef;
+
 typedef struct SPI_Buf{
     uint8_t Buf[SPI_TRANSFER_MTU];
     uint16_t Length;
-    uint16_t Buf_Len_Left;
-    uint8_t state;
     uint8_t block;
     uint8_t pre_sum;
     uint8_t checksum;
@@ -62,10 +81,6 @@ typedef enum{
 #define ICCID_LENGTH                            (uint8_t)0x0A
 #define IMSI_LENGTH                             (uint8_t)0x08
 
-#define SIM_STATE_NOSIM                         (uint8_t)0x00
-#define SIM_STATE_WORKING                       (uint8_t)0xAA
-#define SIM_STATE_STOP                          (uint8_t)0x55
-
 #define AUTH_STAGE_DEFAULT                      (uint8_t)0x00
 #define AUTH_STAGE_REQ1                         (uint8_t)0x01
 #define AUTH_STAGE_ACK1                         (uint8_t)0x02
@@ -84,6 +99,8 @@ typedef struct{
     APDU_BUF_TypeDef RX_APDU;
     struct timeval start,end;
     double timeuse;
+    uint8_t apdu_enable;
+    uint8_t apdu_timeout;
     uint8_t auth_step;
     uint8_t state;
     FILE *log;
@@ -102,6 +119,7 @@ typedef struct{
     uint8_t SIM_CheckErrR,SIM_CheckErrN;
     uint8_t SIM_ResetTbl,SIM_StopTbl;
     uint8_t VersionR,VersionN;
+    uint8_t heartbeat;
 }MCU_TypeDef;
 /******************* SIM end ************************/
 
