@@ -305,7 +305,7 @@ int package(uint8_t mcu_num)
             actionTbl = &(mcu->SIM_StateTblR);
             sim_no = slot_parse(actionTbl);
             datatype = READ_STATE;
-            printf("Read SIM[%d] State.\n",((mcu_num*SIM_NUMS)+sim_no));
+            //printf("Read SIM[%d] State.\n",((mcu_num*SIM_NUMS)+sim_no));
         } else if (mcu->SIM_ResetTbl) {
             actionTbl = &(mcu->SIM_ResetTbl);
             sim_no = slot_parse(actionTbl);
@@ -472,6 +472,14 @@ int parse(uint8_t mcu_num)
                 else step--;
             }break;
             case PARSE_TOTAL_LENGTH:{
+                //MCU online check...
+                mcu->time_out = MCU_TIME_OUT;
+                if(mcu->online == OFF_LINE){
+                    mcu->online = ON_LINE;
+                    logs(misc_log, "MCU[%d] on line.\n", mcu_num);
+                    printf("MCU[%d] on line.\n", mcu_num);
+                }
+
                 total_length = (uint16_t)Rx->Buf[i++] << 8;
                 total_length += (uint16_t)Rx->Buf[i];
                 if(total_length < 2){//data length should be great than 2 bytes.
@@ -571,7 +579,7 @@ int parse(uint8_t mcu_num)
                     case READ_STATE:{
                         //SIM state. check slot ?
                         if(slot > 0){
-                            //if(mcu->SIM[slot - 1].state != Rx->Buf[i])
+                            if(mcu->SIM[slot - 1].state != Rx->Buf[i])
                                 set_flag(&mcu->SIM_StateTblN,slot);
                             mcu->SIM[slot-1].state = Rx->Buf[i];
                         } else {

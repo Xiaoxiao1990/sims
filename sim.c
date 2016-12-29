@@ -249,7 +249,8 @@ static void SIM_info_init(SIM_TypeDef *sim)
     sim->auth_step = AUTH_STAGE_DEFAULT;
     sim->apdu_enable = DISABLE;
     sim->apdu_timeout = APDU_TIME_OUT;
-    sim->log = NULL;
+    //log file always be opened in memory.initialized in log_init.
+    //sim->log = NULL;
 }
 
 void MCU_Init(MCU_TypeDef *mcu)
@@ -281,7 +282,8 @@ void MCU_Init(MCU_TypeDef *mcu)
     mcu->SIM_StateTblN = 0x00;
     mcu->VersionR = 0x00;
     mcu->VersionN = 0x00;
-    mcu->heartbeat = MCU_TIME_OUT;
+    mcu->online = OFF_LINE;
+    mcu->time_out = MCU_TIME_OUT;
 }
 
 void SIMs_Table_init(void)

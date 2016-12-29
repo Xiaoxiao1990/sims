@@ -13,6 +13,8 @@
 /******************* sims.c ***********************/
 #define ENABLE                                          (uint8_t)1
 #define DISABLE                                         (uint8_t)0
+#define ON_LINE                                         (uint8_t)1
+#define OFF_LINE                                        (uint8_t)0
 #define APDU_TIME_OUT                                   (uint8_t)5
 #define MCU_TIME_OUT                                    (uint8_t)5
 /******************* spi.c ************************/
@@ -119,7 +121,8 @@ typedef struct{
     uint8_t SIM_CheckErrR,SIM_CheckErrN;
     uint8_t SIM_ResetTbl,SIM_StopTbl;
     uint8_t VersionR,VersionN;
-    uint8_t heartbeat;
+    uint8_t online;
+    uint8_t time_out;
 }MCU_TypeDef;
 /******************* SIM end ************************/
 
