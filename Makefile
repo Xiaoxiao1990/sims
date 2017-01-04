@@ -3,7 +3,7 @@ CCFLAGS = -Wall -static -lpthread
 TARGET = sim
 all:$(TARGET)
 
-$(TARGET):sims.o functions.o arbitrator.o sim.o spi.o log.o
+$(TARGET):vsim.o sims.o functions.o arbitrator.o sim.o spi.o log.o
 	$(CC) $^  -o $@ $(CCFLAGS)
 
 clean:
@@ -11,7 +11,7 @@ clean:
 
 .PHONY:clean
 
-sources = functions.c arbitrator.c sim.c spi.c sims.c log.c
+sources = vsim.c functions.c arbitrator.c sim.c spi.c sims.c log.c
 
 include $(sources:.c=.d)
 

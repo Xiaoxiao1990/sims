@@ -25,5 +25,6 @@ void SIMs_Printer(void);
 void SPI_Buf_init(SPI_Buf_TypeDef *buf);
 
 double time_use(struct timeval *start_time, struct timeval *end_time);
+void thread_sleep(uint32_t sec);
 
 #endif // FUNCTIONS_H

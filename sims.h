@@ -7,6 +7,7 @@
 #include "spi.h"
 #include "arbitrator.h"
 #include "log.h"
+#include "vsim.h"
 
 
 #endif // SIMS_H

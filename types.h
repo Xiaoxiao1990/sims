@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <stdio.h>
+#include <arpa/inet.h>          //ntoa()
 
 /******************* sims.c ***********************/
 #define ENABLE                                          (uint8_t)1
@@ -49,7 +50,6 @@
 #define SIM_STATE_NO_ATR                                (uint8_t)0xF0
 #define SIM_STATE_NOIMSI                                (uint8_t)0xF1
 #define SIM_STATE_NOICCD                                (uint8_t)0xF2
-
 
 //typedef enum{
 //    NORMAL = 0xAA,
@@ -94,10 +94,12 @@ typedef struct {
 }APDU_BUF_TypeDef;
 
 typedef struct{
+    uint8_t lock;
     uint8_t ICCID[ICCID_LENGTH];
     uint8_t IMSI[IMSI_LENGTH];
     uint8_t AD;
     APDU_BUF_TypeDef Tx_APDU;
+    APDU_BUF_TypeDef Tx_APDU2;
     APDU_BUF_TypeDef RX_APDU;
     struct timeval start,end;
     double timeuse;
@@ -105,6 +107,7 @@ typedef struct{
     uint8_t apdu_timeout;
     uint8_t auth_step;
     uint8_t state;
+    uint16_t sid;
     FILE *log;
 }SIM_TypeDef;
 
@@ -125,6 +128,26 @@ typedef struct{
     uint8_t time_out;
 }MCU_TypeDef;
 /******************* SIM end ************************/
+#define VSIM_NAME_LEN           14
+#define VSIM_SOCKET_BUF_LEN     1024
+#define SERVER_PORT             6666
+#define MAX_LINKS               720
+#define CLIENT_TIME_OUT_VALUE   30          //seconds.
+/******************* vsim ***************************/
+/**
+ * @brief The Client_Info struct
+ * A forward direction loop link node definition.
+ */
+typedef struct S_Client_Info{
+    pthread_t tid;
+    uint16_t num;
+    struct in_addr ip;
+    in_port_t port;
+    int conn_fd;
+    uint8_t device_name[VSIM_NAME_LEN];
+    uint16_t time_out;                      //unit second.
+    struct S_Client_Info *prev,*next;
+}Client_TypeDef;
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 

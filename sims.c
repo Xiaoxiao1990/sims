@@ -114,28 +114,7 @@ APDU_BUF_TypeDef apdu2 = {
    34
 };
 
-void thread_sleep(uint32_t sec)
-{
-    pthread_mutex_t tmutex_sleep = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t tcond_sleep = PTHREAD_COND_INITIALIZER;
-    struct timeval now;
-    struct timespec timeout;
-
-    pthread_mutex_init(&tmutex_sleep, NULL);
-    pthread_cond_init(&tcond_sleep, NULL);
-
-
-    gettimeofday(&now, NULL);
-    timeout.tv_sec = now.tv_sec + sec;
-    timeout.tv_nsec = now.tv_usec * 1000;
-    pthread_cond_timedwait(&tcond_sleep, &tmutex_sleep, &timeout);
-
-    pthread_cond_destroy(&tcond_sleep);
-    pthread_mutex_destroy(&tmutex_sleep);
-}
-
-
-void sims_update(uint8_t mcu_num)
+static void sims_update(uint8_t mcu_num)
 {
     MCU_TypeDef *mcu = &MCUs[mcu_num];
     SIM_TypeDef *sim;
@@ -236,9 +215,8 @@ void sims_update(uint8_t mcu_num)
                 logs(log_file, "SIM[%d] Auth. time use:%lf(us)\n", abs_sim_no, sim->timeuse);
             }break;
             case AUTH_STAGE_ACK2:
-            default:sim->auth_step = AUTH_STAGE_DEFAULT;;
+            default:sim->auth_step = AUTH_STAGE_DEFAULT;break;
             }
-
         } else if(mcu->SIM_CheckErrN) {
             actionTbl = &(mcu->SIM_CheckErrN);
             sim_no = slot_parse(actionTbl) - 1;//offset 1
@@ -286,6 +264,7 @@ uint8_t authentication(SIM_TypeDef *sim)
     case AUTH_STAGE_ACK2:break;
     default:;
     }
+    return 0;
 }
 
 void * sim_affair(void *arg)
@@ -295,7 +274,7 @@ void * sim_affair(void *arg)
 //    DataType_TypeDef action;
 //    FILE *log_file;
 //    uint8_t *actionTbl;
-    uint8_t i, j, auth_try;
+    uint8_t i, j;
 
     arg = arg;
 
@@ -415,12 +394,23 @@ void *timerwheel(void *arg)
     uint8_t mcu,sim;
     uint8_t logautosave_time = 0;
     SIM_TypeDef SIM;
+    Client_TypeDef *ct;
 
     arg = arg;
 
     while(1){
         thread_sleep(1);
 
+        //client time out
+        while(ct != NULL){
+            if(ct->time_out > 0)
+            {
+                ct->time_out--;
+                printf("[%s:%d]Client[%d]:Time out after (%d) second(s).\n", inet_ntoa(ct->ip), ct->port, ct->num, ct->time_out);
+            }
+            ct = ct->prev;
+            if(ct == current_client)break;
+        }
         //time ticker
         for(mcu = 0;mcu < MCU_NUMS;mcu++){
             if(MCUs[mcu].online == ON_LINE){
@@ -508,11 +498,9 @@ int main(int argc, char *argv[])
     pthread_detach(tid_timewheel);
 
     printf("I/O message: \n");
-    int i;
+
     for(;;){//sim stuff
-        //SIMs_Printer();
-        thread_sleep(3);
-       //for(i = 0;i < MCU_NUMS;i++)sims_update(i);
+        VSIM_Management();
     }
 
     if(0 != close_logs()){

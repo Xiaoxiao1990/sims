@@ -221,6 +221,26 @@ double time_use(struct timeval *start_time, struct timeval *end_time)
     return ((double)1000000*(end_time->tv_sec - start_time->tv_sec) + end_time->tv_usec - start_time->tv_usec);//us
 }
 
+void thread_sleep(uint32_t sec)
+{
+    pthread_mutex_t tmutex_sleep = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t tcond_sleep = PTHREAD_COND_INITIALIZER;
+    struct timeval now;
+    struct timespec timeout;
+
+    pthread_mutex_init(&tmutex_sleep, NULL);
+    pthread_cond_init(&tcond_sleep, NULL);
+
+
+    gettimeofday(&now, NULL);
+    timeout.tv_sec = now.tv_sec + sec;
+    timeout.tv_nsec = now.tv_usec * 1000;
+    pthread_cond_timedwait(&tcond_sleep, &tmutex_sleep, &timeout);
+
+    pthread_cond_destroy(&tcond_sleep);
+    pthread_mutex_destroy(&tmutex_sleep);
+}
+
 /******************************************************************************
  * Function:print changes
  * ***************************************************************************/

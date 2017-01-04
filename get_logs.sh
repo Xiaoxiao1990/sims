@@ -1,2 +1,2 @@
 #!/bin/bash
-scp -r root@172.16.0.73:/root/Logs ./
+scp -r root@192.168.1.45:/root/Logs ./
