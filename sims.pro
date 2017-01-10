@@ -8,9 +8,9 @@ SOURCES += \
     sims.c \
     sim.c \
     functions.c \
-    arbitrator.c \
     log.c \
-    vsim.c
+    vsim.c \
+    arbitrator.c
 
 HEADERS += \
     types.h \
@@ -18,6 +18,7 @@ HEADERS += \
     functions.h \
     spi.h \
     sim.h \
-    arbitrator.h \
     log.h \
-    vsim.h
+    vsim.h \
+    arbi.h \
+    arbitrator.h

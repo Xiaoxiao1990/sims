@@ -6,6 +6,7 @@
  * ************************************************/
 #include <stdio.h>
 #include <pthread.h>
+#include <string.h>
 
 #include "types.h"
 #include "functions.h"
@@ -43,199 +44,6 @@ int block_length_check(DataType_TypeDef datatype,uint8_t data_len)
  * @return
  */
 
-/*
-void * frame_package(void *arg)
-{//Running in an independent thread.
-    uint8_t i;
-    uint8_t sim_no = 0;
-    uint8_t *data, apdu_len;
-    uint16_t block_len;
-    uint8_t *actionTbl;
-    uint16_t mcu_num = 0;
-    uint8_t real_state;
-
-    DataType_TypeDef datatype;
-    MCU_TypeDef *mcu = &MCUs[0];
-    SPI_Buf_TypeDef *Tx = &(mcu->TxBuf);
-
-    arg = arg;
-
-    for(;;){
-        //Check Tx buffer state at first
-        pthread_mutex_lock(&tmutex_mcu_buf_access);
-        switch(Tx->state){
-            case SPI_BUF_STATE_PACKAGING:
-                printf("Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
-                logs(misc_log, "Unexpected SPI buffer state[%d] of MCU[%d]. Attempt to reset it.\n", Tx->state, mcu_num);
-                SPI_Buf_init(Tx);
-            case SPI_BUF_STATE_TRANSMITING:
-            case SPI_BUF_STATE_FULL:{
-                //do nothing here.just switch to next Tx buffer.
-                pthread_mutex_unlock(&tmutex_mcu_buf_access);
-                goto NEXT_MCU;
-            }break;
-            case SPI_BUF_STATE_EMPTY:
-            case SPI_BUF_STATE_READY:{
-                real_state = Tx->state;
-                Tx->state = SPI_BUF_STATE_PACKAGING;
-            }break;
-            default:;
-        }
-        pthread_mutex_unlock(&tmutex_mcu_buf_access);
-        //printf("Package MCU[%d].\n",mcu_num);
-        //Check whether have something to send to MCU.
-        while(mcu->SIM_StateTblR | mcu->SIM_ResetTbl | mcu->SIM_StopTbl | mcu->SIM_APDUTblR | mcu->SIM_InfoTblR | mcu->VersionR | mcu->SIM_CheckErrR){
-            if(mcu->SIM_StateTblR){
-                actionTbl = &(mcu->SIM_StateTblR);
-                sim_no = slot_parse(actionTbl);
-                datatype = READ_STATE;
-                printf("Read SIM[%d] State.\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if (mcu->SIM_ResetTbl) {
-                actionTbl = &(mcu->SIM_ResetTbl);
-                sim_no = slot_parse(actionTbl);
-                datatype = RESET_SIM;
-                printf("Reset SIM[%d].\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if(mcu->SIM_StopTbl) {
-                actionTbl = &(mcu->SIM_StopTbl);
-                sim_no = slot_parse(actionTbl);
-                datatype = STOP_SIM;
-                printf("Stop SIM[%d].\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if(mcu->SIM_APDUTblR) {
-                actionTbl = &(mcu->SIM_APDUTblR);
-                sim_no = slot_parse(actionTbl);
-                datatype = APDU_CMD;
-                printf("APDU Commands To SIM[%d].\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if(mcu->SIM_CheckErrR) {
-                actionTbl = &(mcu->SIM_CheckErrR);
-                sim_no = slot_parse(actionTbl);
-                datatype = TRANS_ERR;
-                printf("SIM[%d] Checksum Error.\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if(mcu->SIM_InfoTblR) {
-                actionTbl = &(mcu->SIM_InfoTblR);
-                sim_no = slot_parse(actionTbl);
-                datatype = READ_INFO;
-                printf("Read Information From SIM[%d].\n",((mcu_num*SIM_NUMS)+sim_no));
-            } else if(mcu->VersionR) {
-                actionTbl = &(mcu->VersionR);
-                mcu->VersionR &= 0x00;
-                sim_no = 0;//slot_parse(actionTbl);
-                datatype = READ_SWHW;
-                printf("Read HW&SW Version From MCU[%d].\n",mcu_num + 1);
-            }
-
-            apdu_len = mcu->SIM[sim_no - 1].Tx_APDU.length; // offset 1. array start from 0
-            data = mcu->SIM[sim_no - 1].Tx_APDU.APDU;
-
-            block_len = block_length_check(datatype, apdu_len);
-            //calculate Tx buffer free space.
-            if(real_state == SPI_BUF_STATE_EMPTY){//The first time come to this buffer.
-                if((Tx->Length + block_len + 5) >= SPI_TRANSFER_MTU){
-                    //Illegal blocks, data length is too long.skip this block,clear the CMD flag.
-                    printf("Illegal data block:Data block length[%d] great than Tx buffer maximum length[%d].\n", block_len, SPI_TRANSFER_MTU);
-                    logs(misc_log, "Illegal data block:Data block length[%d] great than Tx buffer maximum length[%d].\n", block_len, SPI_TRANSFER_MTU);
-                    clear_flag(actionTbl, sim_no);
-                    continue;
-                }
-            }
-            else if(real_state == SPI_BUF_STATE_READY){//There is something packed in this buffer.
-                if((Tx->Length + block_len) >= SPI_TRANSFER_MTU){
-                    //There is no space to load this block,wait for next package.
-                    printf("MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
-                    logs(misc_log, "MCU[%d]->Tx buffer is no space to allocate data block, try again by next time.\n", mcu_num);
-                    Tx->state = SPI_BUF_STATE_FULL;
-                    goto NEXT_MCU;
-                }
-            } else {
-                logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", real_state, mcu_num);
-                SPI_Buf_init(Tx);
-                goto NEXT_MCU;
-            }
-            //state:EMPTY,READY
-            switch(real_state){
-                case SPI_BUF_STATE_EMPTY:{
-                    //Frame Head;
-                    Tx->Buf[0] = DATA_FRAME_HEAD1;
-                    Tx->Buf[1] = DATA_FRAME_HEAD2;
-
-                    //Locate to block
-                    //|0   1|2       3|4    |5      |   |       |
-                    //|A5 A5|lenH lenL|block|data[0]|...|data[n]|checksum|
-                    Tx->Length = 5;//Length is Buf[] position.
-                }//go on
-                case SPI_BUF_STATE_READY:{
-                    //data block begin
-                    Tx->Buf[Tx->Length] = sim_no;                       //slot
-                    Tx->pre_sum += Tx->Buf[Tx->Length++];
-
-                    //printf("Length = %d\n",MCU_Tx_WriteP->Length);
-                    //|0   |1      |2       |
-                    //|slot|sub_len|datatype|data|
-                    Tx->Buf[Tx->Length] = (datatype == APDU_CMD)?(apdu_len+1):0x01;//sub length
-                   // printf("sub length = %d\n",data_len);
-                    Tx->pre_sum += Tx->Buf[Tx->Length++];
-
-                    Tx->Buf[Tx->Length] = datatype;                     //data type
-                    Tx->pre_sum += Tx->Buf[Tx->Length++];
-
-                    //Others are all 1 byte length.
-                    if(datatype == APDU_CMD){//Here,Tx->Length point to apdu data[].
-                        //logs(mcu->SIM[sim_no-1].log,"APDU[%d] send to sim:\n", apdu_len);
-                        //fprint_array_r(mcu->SIM[sim_no-1].log, data, apdu_len);
-                        for(i = 0;i < apdu_len;i++){
-                            Tx->Buf[Tx->Length++] = data[i];    
-                            data[i] = 0xFF;//flush APDU tx buffer.
-                            Tx->pre_sum += data[i];
-                        }
-                        //flush APDU buffer
-                        mcu->SIM[sim_no - 1].Tx_APDU.length = 0;//clear
-                    }
-                    //Here,Tx->Length point to checksum.
-                    //Block quantity
-                    Tx->block++;
-                    Tx->Buf[4] = Tx->block;
-
-                    //pre_sum stop to calculate.
-                    Tx->checksum = Tx->pre_sum;
-                    Tx->checksum += Tx->Buf[4];
-
-                    //Data total length = Tx->Length - checksum(1 byte) - frame head(2 bytes) - total length(2 bytes) + 1(start with 0) = Length - 4
-                    Tx->Buf[2] = (uint8_t)((Tx->Length - 4) >> 8);
-                    Tx->checksum += Tx->Buf[2];
-                    Tx->Buf[3] = (uint8_t)((Tx->Length - 4) & 0xFF);
-                    Tx->checksum += Tx->Buf[3];
-                    //data block end
-                    Tx->Buf[Tx->Length] = Tx->checksum;
-
-                    real_state = SPI_BUF_STATE_READY;
-                    //clear flag
-                    clear_flag(actionTbl,sim_no);
-                }break;
-                case SPI_BUF_STATE_FULL://Never been here.
-                case SPI_BUF_STATE_PACKAGING://Never been here.
-                case SPI_BUF_STATE_TRANSMITING://Never been here.
-                default:
-                    printf("MCU[%d]'s Tx buffer state has been changed by unknow ways!\n", mcu_num);
-                    logs(misc_log, "Unexpected SPI Tx buffer state[%d] of MCU[%d]. Attempt to reset it.\n", real_state, mcu_num);
-                    SPI_Buf_init(Tx);
-                    goto NEXT_MCU;
-              break;
-            }
-            //printf("MCU[%d]Tx buffer:\n", mcu_num);
-            //print_array(Tx->Buf);
-        }
-
-        Tx->state = real_state;
-NEXT_MCU:
-        mcu_num++;
-        if(mcu_num >= MCU_NUMS)mcu_num = 0;
-        mcu = &MCUs[mcu_num];
-        Tx = &(mcu->TxBuf);
-    }
-    printf("Package frame error!\n");
-    pthread_exit(NULL);
-}
-*/
-
 static void SIM_info_init(SIM_TypeDef *sim)
 {
     sim->AD = 0x00;
@@ -246,11 +54,9 @@ static void SIM_info_init(SIM_TypeDef *sim)
     sim->RX_APDU.length = 0x00;
     flush_array(sim->Tx_APDU.APDU);
     sim->Tx_APDU.length = 0x00;
-    sim->auth_step = AUTH_STAGE_DEFAULT;
-    sim->apdu_enable = DISABLE;
-    sim->apdu_timeout = APDU_TIME_OUT;
     //log file always be opened in memory.initialized in log_init.
     //sim->log = NULL;
+    pthread_mutex_init(&sim->lock, NULL);
 }
 
 void MCU_Init(MCU_TypeDef *mcu)
@@ -282,8 +88,8 @@ void MCU_Init(MCU_TypeDef *mcu)
     mcu->SIM_StateTblN = 0x00;
     mcu->VersionR = 0x00;
     mcu->VersionN = 0x00;
-    mcu->online = OFF_LINE;
-    mcu->time_out = MCU_TIME_OUT;
+    mcu->state = OFF_LINE;
+    mcu->heartbeat.time_out = MCU_TIME_OUT;
 }
 
 void SIMs_Table_init(void)
@@ -299,5 +105,149 @@ void SIMs_Table_init(void)
         printf("===================== MCU[%d] =====================\n",i+1);
         print_MCU(&MCUs[i]);
 #endif
+    }
+}
+
+static int upload_apdu(APDU_BUF_TypeDef *apdu, APDU_BUF_TypeDef *data)
+{
+    if(data->length > SIM_APDU_LENGTH){
+        printf("APDU commands length[%d bytes] is too long than the APDU buffer maximum[%d bytes] length.\n",data->length,SIM_APDU_LENGTH);
+        return  -1;
+    }
+
+    memcpy(apdu->APDU, data->APDU,data->length);
+    apdu->length = data->length;
+    return 0;
+}
+
+int sim_read(uint16_t sim_abs, DataType_TypeDef datatype, void *data_addr){
+    uint8_t mcu_no, sim_offset, flag;
+    APDU_BUF_TypeDef *apdu;
+    APDU_BUF_TypeDef *data;
+
+    if((0 == sim_abs) || (sim_abs > MAX_SIM_NUMS)){
+        printf("SIM NO. range[1~%d].\n", (SIM_NUMS * MCU_NUMS));
+        return -1;
+    }
+
+    mcu_no = (sim_abs - 1)/SIM_NUMS;
+    sim_offset = ((sim_abs - 1)%SIM_NUMS);
+
+    flag = (0x01 << sim_offset);//flag clear by frame_package()
+
+    switch(datatype){
+        case DUMMY_READ:break;
+        case READ_SWHW:MCUs[mcu_no].VersionR = 0x1F;break;
+        case STOP_SIM:MCUs[mcu_no].SIM_StopTbl |= flag;break;
+        case RESET_SIM:MCUs[mcu_no].SIM_ResetTbl |= flag;break;
+        case READ_INFO:MCUs[mcu_no].SIM_InfoTblR |= flag;break;
+        case READ_STATE:MCUs[mcu_no].SIM_StateTblR |= flag;break;
+        case APDU_CMD:{
+            apdu = &(MCUs[mcu_no].SIM[sim_offset].Tx_APDU);
+            data = data_addr;
+            if((upload_apdu(apdu, data)) != 0){
+                printf("SIM[%d] upload apdu data error.\n", sim_abs);
+                break;
+            }
+            MCUs[mcu_no].SIM_APDUTblR |= flag;
+        }break;
+        case TRANS_ERR:MCUs[mcu_no].SIM_CheckErrR |= flag;break;
+        default:printf("Read argument error!\n");return -1;break;
+    }
+
+    return 0;
+}
+
+int mcu_read(uint8_t mcu_no, DataType_TypeDef datatype, void *arg){
+    uint16_t i, sim_base;
+    if(mcu_no >= MCU_NUMS){
+        printf("MCU NO.[0~%d]", MCU_NUMS);
+        return -1;
+    }
+
+    sim_base = (uint16_t)mcu_no*SIM_NUMS;
+    for(i = 1;i <= SIM_NUMS;i++){
+        if(sim_read((sim_base + i), datatype , arg) != 0){
+            printf("Actions error:SIM[%d],Operat type:[%d].\n",sim_base+i, datatype);
+        }
+    }
+
+    return 0;
+}
+
+APDU_BUF_TypeDef apdu1 = {
+    {0x00,0x88,0x00,0x81,0x22},
+    5
+};
+
+APDU_BUF_TypeDef apdu2 = {
+    {
+        0x10,0xA6,0x75,0x25,0xAE,0x62,0x13,0x74,0x98,0x06,0x8F,0x5D,0x55,0x97,0x4E,0xD7,0x94,
+        0x10,0x8A,0x87,0xE1,0x50,0xF2,0xB0,0x82,0x34,0xF1,0xA3,0x49,0x9D,0x91,0xA3,0x8F,0xAD
+    },
+   34
+};
+
+static void sims_update(uint8_t mcu_num)
+{
+    MCU_TypeDef *mcu = &MCUs[mcu_num];
+    SIM_TypeDef *sim;
+    APDU_BUF_TypeDef *apdu;
+    uint8_t *actionTbl, sim_no;
+    uint16_t abs_sim_no = (mcu_num * SIM_NUMS) + 1;
+
+    while(mcu->SIM_StateTblN | mcu->SIM_APDUTblN | mcu->SIM_InfoTblN | mcu->SIM_CheckErrN | mcu->VersionN){
+        if(mcu->SIM_StateTblN){
+            actionTbl = &(mcu->SIM_StateTblN);
+            sim_no = slot_parse(actionTbl) - 1;//offset 1
+            sim = &mcu->SIM[sim_no];
+            abs_sim_no += sim_no;
+            printf("SIM[%d]'s state changed:", abs_sim_no);
+            printf("%.2X\n",sim->state);
+
+        } else if(mcu->SIM_APDUTblN) {
+            actionTbl = &(mcu->SIM_APDUTblN);
+            sim_no = slot_parse(actionTbl) - 1;//offset 1
+            sim = &mcu->SIM[sim_no];
+            abs_sim_no += sim_no;
+
+            printf("Recv. APDU ACK from SIM[%d]:\n", abs_sim_no);
+            apdu = &(sim->RX_APDU);
+            print_array_r(apdu->APDU,apdu->length);
+            puts("");
+        } else if(mcu->SIM_CheckErrN) {
+            actionTbl = &(mcu->SIM_CheckErrN);
+            sim_no = slot_parse(actionTbl) - 1;//offset 1
+            //sim = &mcu->SIM[sim_no];
+            abs_sim_no += sim_no;
+
+            printf("[%s:%d]SIM[%d] transmit error.\n", __FILE__, __LINE__, abs_sim_no);
+        } else if(mcu->SIM_InfoTblN) {
+            actionTbl = &(mcu->SIM_InfoTblN);
+            sim_no = slot_parse(actionTbl) - 1;//offset 1
+            sim = &mcu->SIM[sim_no];
+            abs_sim_no += sim_no;
+
+            printf("SIM[%d]'s information changed:\n", abs_sim_no);
+            printf("ICCID:");
+            print_array(sim->ICCID);
+            puts("");
+            printf("IMSI :");
+            print_array(sim->IMSI);
+            puts("");
+            printf("AD:%.2X\n",sim->AD);
+        } else if(mcu->VersionN) {
+            actionTbl = &(mcu->VersionN);
+            mcu->VersionN &= 0x00;
+            printf("MCU[%d]'s hardware & software Version Changed:\nHardware version:", mcu_num);
+            print_array(mcu->HardWare_Version);puts("");
+            printf("Software version:");
+            print_array(mcu->HardWare_Version);puts("");
+            continue;
+        }
+//        printf("actionTblA:");bin_echo(*actionTbl);puts("");
+        clear_flag(actionTbl, sim_no + 1);
+//        printf("actionTblB:");bin_echo(*actionTbl);puts("");
+        //thread_sleep(1);
     }
 }

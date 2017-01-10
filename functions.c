@@ -256,7 +256,6 @@ void SIMs_Printer(void)
     uint8_t i;
     uint16_t abs_sim_no;
     APDU_BUF_TypeDef *apdu;
-    FILE *log_file;
 
     for(i = 0;i < MCU_NUMS;i++){
         mcu = &MCUs[i];
@@ -274,93 +273,16 @@ void SIMs_Printer(void)
                 sim_no = slot_parse(actionTbl) - 1;//offset 1.
 
                 abs_sim_no = (i*SIM_NUMS)+sim_no+1;
-                log_file = mcu->SIM[sim_no].log;
 
                 printf("Recv. APDU ACK from SIM[%d]:\n", abs_sim_no);
                 apdu = &(mcu->SIM[sim_no].RX_APDU);
                 print_array_r(apdu->APDU,apdu->length);
                 puts("");
-                //count down time.
-                switch(MCUs[i].SIM[sim_no].auth_step){
-                case AUTH_STAGE_DEFAULT:break;
-                case AUTH_STAGE_REQ1:{
-                    if(apdu->length == 1){//0x88
-                        if(apdu->APDU[0] != 0x88){
-                            printf("Auth. ACK1 error.\n");
-                            logs(log_file, "SIM[%d] Auth ACK1 error. Tx_APDU[%d]:\n", abs_sim_no, apdu->length);
-                            fprint_array_r(log_file, apdu->APDU, apdu->length);
-
-                            MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                            break;
-                        }
-                    } else if(apdu->length == 2){//0x60 0x88
-                        if((apdu->APDU[0] | apdu->APDU[1]) != 0xE8){
-                            printf("Auth. ACK1 error.\n");
-                            logs(log_file, "SIM[%d] Auth ACK1 error. Tx_APDU[%d]:\n", abs_sim_no, apdu->length);
-                            fprint_array_r(log_file, apdu->APDU, apdu->length);
-                            MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                            break;
-                        }
-                    } else {
-                        printf("Auth. ACK1 length error.\n");
-                        logs(log_file, "SIM[%d] Auth ACK1 length error. Tx_APDU[%d]:\n", abs_sim_no, apdu->length);
-                        fprint_array_r(log_file, apdu->APDU, apdu->length);
-                        MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                        break;
-                    }
-
-                    MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_ACK1;
-                    sim_read(((i*SIM_NUMS) + sim_no + 1), APDU_CMD, &apdu2);
-                }break;
-                case AUTH_STAGE_ACK1:break;
-                case AUTH_STAGE_REQ2:{
-                    if(apdu->length == 2){//0x98 0x62
-                        if((apdu->APDU[0]|apdu->APDU[1]) != 0xFA){
-                            printf("Auth. ACK2 error.\n");
-                            logs(log_file, "SIM[%d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
-                            fprint_array_r(log_file, apdu->APDU, apdu->length);
-                            MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                            break;
-                        }
-                    } else if (apdu->length == 3){//0x60 0x98 0x62
-                        if((apdu->APDU[1] | apdu->APDU[2]) == 0xFA){
-                            if(apdu->APDU[0] != 0x60){//auth. failed
-                                printf("Auth. ACK2 error.\n");
-                                logs(log_file, "SIM[%d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
-                                fprint_array_r(log_file, apdu->APDU, apdu->length);
-                                MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                                break;
-                            }
-                        } else {//auth. failed
-                            printf("Auth. ACK2 error.\n");
-                            logs(log_file, "SIM[%d] Auth. ACK2 error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
-                            fprint_array_r(log_file, apdu->APDU, apdu->length);
-                            MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                            break;
-                        }
-                    } else {//auth. failed
-                        printf("Auth. ACK2 length error.\n");
-                        logs(log_file, "SIM[%d] Auth. ACK2 length error. Tx_APDU[%d]:", abs_sim_no, apdu->length);
-                        fprint_array_r(log_file, apdu->APDU, apdu->length);
-                        MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                        break;
-                    }
-
-                    MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;
-                    gettimeofday(&(MCUs[i].SIM[sim_no].end), 0);
-                    MCUs[i].SIM[sim_no].timeuse = time_use(&(MCUs[i].SIM[sim_no].start), &(MCUs[i].SIM[sim_no].end));//us
-                    printf("SIM[%d] Auth. time use:%lf(us)\n", abs_sim_no, MCUs[i].SIM[sim_no].timeuse);
-                    logs(log_file, "SIM[%d] Auth. time use:%lf(us)\n", abs_sim_no, MCUs[i].SIM[sim_no].timeuse);
-                }break;
-                case AUTH_STAGE_ACK2:
-                default:MCUs[i].SIM[sim_no].auth_step = AUTH_STAGE_DEFAULT;;
-                }
-
             } else if(mcu->SIM_CheckErrN) {
                 actionTbl = &(mcu->SIM_CheckErrN);
                 sim_no = slot_parse(actionTbl);
 
-                printf("SIM[%d] transmit error.\n",((i*SIM_NUMS)+sim_no));
+                printf("[%s:%d]SIM[%d] transmit error.\n", __FILE__, __LINE__, ((i*SIM_NUMS)+sim_no));
             } else if(mcu->SIM_InfoTblN) {
                 actionTbl = &(mcu->SIM_InfoTblN);
                 sim_no = slot_parse(actionTbl) - 1;//offset 1.

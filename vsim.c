@@ -106,12 +106,6 @@ static void delete_client_by_pos(Client_TypeDef *ct)
 Node_Not_Found:;
 }
 
-/**
- * @brief delete_client_by_num
- * delet client by client number
- * @param num
- * client number
- */
 //static void delete_client_by_num(uint16_t num)
 //{
 //    Client_TypeDef *dct = current_client; //backward search from current_client
@@ -130,74 +124,51 @@ Node_Not_Found:;
 //Node_Not_Found:;
 //}
 
-#define CLIENT_FRAME_HEAD1                      (uint8_t)0xA5
-#define CLINET_FRAME_HEAD2                      (uint8_t)0xA5
+
+#define CLIENT_FRAME_HEAD1                      (uint8_t)0xAA
+#define CLIENT_FRAME_HEAD2                      (uint8_t)0x66
 #define CLIENT_FRAME_LENGTH                     (uint8_t)
 
 #define PARSE_CLIENT_HEAD1                      (uint8_t)0x00
 #define PARSE_CLIENT_HEAD2                      (uint8_t)0x01
-#define PARSE_CLINET_SID                        (uint8_t)0x02
-#define PARSE_CLIENT_SLOT                       (uint8_t)0x03
-#define PARSE_CLIENT_LENGHT                      (uint8_t)0x04
-#define PARSE_CLIENT_DATA                       (uint8_t)0x05
-
-static int parse_client(uint8_t *buff, uint16_t buf_len)
+/*
+static int parse_client(uint8_t *buff, uint16_t buf_len, Client_TypeDef *ct)
 {
     uint16_t i, sid, total_len, slot;
     uint8_t step = 0,mcu,sim;
     SIM_TypeDef *SIM;
 
-    for(i = 0;i < buf_len;i++){
-        //
-        switch(step){
-        case PARSE_CLIENT_HEAD1:
-            if((uint8_t)buff[i] == CLIENT_FRAME_HEAD1)step++;
-            else if(memcmp(buff, "TGT", 3) == 0){//heart beat from device
-                return 1;
-            }
-            break;
-        case PARSE_CLIENT_HEAD2:
-            if((uint8_t)buff[i] == CLINET_FRAME_HEAD2)step++;
-            else step--;
-            break;
-        case PARSE_CLINET_SID:
-            sid = buff[i++] << 8;
-            sid += buff[i];
-            step++;
-            break;
-        case PARSE_CLIENT_SLOT:
-            slot = buff[i++] << 8;
-            slot += buff[i];
-            if((slot > 0) && (slot < (SIM_NUMS*MCU_NUMS))){
-                sim = (slot - 1)%SIM_NUMS;
-                mcu = (slot - 1)/SIM_NUMS;
-                SIM = &MCUs[mcu].SIM[sim];
-                if(SIM->lock == DISABLE){
-                    SIM->lock = ENABLE;
-                    logs(SIM->log, "SIM[%d] unlocked.\n", slot);
-                } else {
-                    logs(SIM->log,"SIM[%d] locked.\n", slot);
-                    return -1;
-                }
-            } else {
-                logs(misc_log, "VSP bind to SIM error.Slot number out of range.\n");
-                fprint_array(misc_log, buff);
-                return -1;
-            }
-            break;
-        case PARSE_CLIENT_LENGHT:
-            total_len = buff[i++] << 8;
-            total_len += buff[i];
-            break;
-        case PARSE_CLIENT_DATA:
-
-            break;
-        default:break;
+    if((buff[0] == CLIENT_FRAME_HEAD1) && (buff[1] == CLIENT_FRAME_HEAD2)){
+        //AA 66 00 01 01 15 27 00 88 00 81 22 10 8A 65 26 15 26 B4 B4 55 C9 15 BF 64 A0 B8 1F EA 10 6F C2 56 A6 2E 2F 80 00 B4 10 57 B8 E0 4D 59 37
+        sid = (buff[2] << 8) + buff[3];
+        slot = (buff[4] << 8) + buff[5] - 1;//offset 1
+        if((slot <= 0) || (slot > MCU_NUMS*SIM_NUMS)){
+            //slot number out of range.
+            logs(misc_log, "Slot number out of range from client[%s:%d].\n", inet_ntoa(ct->ip), ct->port);
+            //
+            return -1;
         }
+        mcu = slot/MCU_NUMS;
+        sim = slot%MCU_NUMS;
+        SIM = &MCUs[mcu].SIM[sim];
+
+    } else if(memcmp(buff, "TGT", 3) == 0){
+        //heart beat from VSP
+        if(ct->registed == UNREGISTE){
+            ct->registed = REGISTED;
+            memcmp(ct->device_name, buff, VSIM_NAME_LEN);
+        }
+        //send to VSP
+        send(ct->conn_fd, buff, VSIM_NAME_LEN, 0);
+    } else {
+        //Unknow data...
+        printf("A unknow data format from client[%s:%d]...\n", inet_ntoa(ct->ip), ct->port);
+        return -1;
     }
+
     return 0;
 }
-
+*/
 /**
  * @brief client_stuff
  * @param arg
@@ -232,11 +203,8 @@ static void * client_stuff(void *arg)
                 n = recv(ct->conn_fd, buff, VSIM_SOCKET_BUF_LEN, 0);
                 if(n > 0){
                     buff[n] = '\0';
-//                    printf("[%s:%d]Client[%d] says:%s\n", from, ct->port, ct->num, buff);
-//                    if(parse_client(buff, n) == 1){//VSIM heart beat return.
-//                        memcpy(ct->device_name, buff, VSIM_NAME_LEN);
-//                        send(ct->conn_fd, buff, n, 0);
-//                    }
+                    //printf("[%s:%d]Client[%d] says:%s\n", from, ct->port, ct->num, buff);
+                    //parse_client(buff, n, ct);
                     ct->time_out = CLIENT_TIME_OUT_VALUE;
                 } else {
                     printf("Client[%d] socket closed.\n", ct->num);
@@ -245,8 +213,6 @@ static void * client_stuff(void *arg)
                 }
             }
         }
-
-        //printf("Client[%d]:time out after %2d second(s).\n", ct->num, ct->time_out);
     }while(ct->time_out > 0);
 
     char *msg = "You're out!";
@@ -331,6 +297,8 @@ void VSIM_Management(void)
         ct->ip.s_addr = client.sin_addr.s_addr;
         ct->port = client.sin_port;
         ct->time_out = CLIENT_TIME_OUT_VALUE;
+        ct->registed = UNREGISTE;
+        ct->SIM = NULL;
 
         if(Clients_CNT > 0){
             uint16_t flag;
@@ -369,59 +337,8 @@ void VSIM_Management(void)
             exit(1);
         }
         pthread_detach(current_client->tid);
-//       if((pthread_create(&pid_clients[client_num-1], (void *)NULL, (void *)client_stuff, NULL)) < 0){
- //          printf("Create pthread error.\n");
-  //         exit(1);
-  //     }
-        /*
-        char buff[VSIM_SOCKET_BUF_LEN];
-        int n;
-        //create a new thread to process
-        char *from = inet_ntoa(client.sin_addr);
-        printf("[%s:%d] Connected !\n", from, client.sin_port);
-        n = recv(connfd, buff, VSIM_SOCKET_BUF_LEN, 0);
-        buff[n] = '\0';
-
-        printf("Recv msg from client[%s:%d]:%s\n", from, client.sin_port, buff);
-        close(connfd);
-        */
     }
 
     close(listenfd);
     logs(misc_log, "Fatal error:%s abort!",__func__);
 }
-/*
-void Client_Init(void)
-{
-    //Initalize head of client data
-    current_client = (Client_TypeDef *)malloc(sizeof(struct S_Client_Info));
-    client_data_init(current_client);
-    current_client->next = current_client;
-    current_client->prev = current_client;
-}
-*/
-/**
- * @brief main
- * for test VSIM managerment.
- * @param argc :none
- * @param argv :none
- * @return 0
- */
-//int main(int argc, char *argv[])
-//{
-//    pthread_t time_wheel;
-//    int ret;
-
-//    //Client_Init();
-
-//    ret = pthread_create(&time_wheel, NULL, &SYS_Time_Wheel, NULL);
-//    if(ret != 0){
-//        printf("Create pthread error.\n");
-//        exit(1);
-//    }
-//    pthread_detach(time_wheel);
-
-//    VSIM_Managerment();
-
-//    return 0;
-//}

@@ -458,7 +458,7 @@ int parse(uint8_t mcu_num)
     MCU_TypeDef *mcu = &MCUs[mcu_num];
     SPI_Buf_TypeDef *Rx = &(mcu->RxBuf);
 
-    for(i = 0;i < ARRAY_SIZE(Rx->Buf);i++){//Frame start
+    for(i = 0;i < SPI_TRANSFER_MTU;i++){//Frame start
         switch(step){
             case PARSE_FRAME_HEAD1:{
                 if(Rx->Buf[i] == DATA_FRAME_HEAD1){
@@ -473,9 +473,9 @@ int parse(uint8_t mcu_num)
             }break;
             case PARSE_TOTAL_LENGTH:{
                 //MCU online check...
-                mcu->time_out = MCU_TIME_OUT;
-                if(mcu->online == OFF_LINE){
-                    mcu->online = ON_LINE;
+                mcu->heartbeat.time_out = MCU_TIME_OUT;
+                if(mcu->state == OFF_LINE){
+                    mcu->state = ON_LINE;
                     logs(misc_log, "MCU[%d] on line.\n", mcu_num);
                     printf("MCU[%d] on line.\n", mcu_num);
                 }
@@ -484,8 +484,10 @@ int parse(uint8_t mcu_num)
                 total_length += (uint16_t)Rx->Buf[i];
                 if(total_length < 2){//data length should be great than 2 bytes.
                     printf("Frame length is too short:[%d btyes].\n",total_length);
-                } else if(total_length > ARRAY_SIZE(Rx->Buf)) {
-                    printf("Frame length is too long:[%d btyes].\n",total_length);
+                } else if(total_length >= SPI_TRANSFER_MTU) {
+                    printf("Frame length is too long:[%d btyes].\nMCU[%d].RxBuf:\n",total_length, mcu_num);
+                    print_array(Rx->Buf);
+                    exit(0);
                 } else{
                     //Calculate checksum.
 #ifdef CHECKSUM_ON
@@ -597,6 +599,9 @@ int parse(uint8_t mcu_num)
                     }break;
                     case TRANS_ERR:{//may be ... never use the function. just redo it if time out,determined by host.
                         set_flag(&mcu->SIM_CheckErrN,slot);
+                        printf("[%s:%d]MCU[%d].RxBuf:\n",__FILE__, __LINE__, mcu_num);
+                        print_array(Rx->Buf);
+                        exit(0);
                     }break;               //Maybe should do something here.
                     default:;
                 }
@@ -623,6 +628,8 @@ int parse(uint8_t mcu_num)
  * Transfer the messages between main & sim board.
  * Arbitrations
  */
+#define SPI0_MAX_MCU_NUM                            72
+#define SPI2_MAX_MCU_NUM                            MCU_NUMS
 void * spi0(void *arg)
 {
     arg = arg;
@@ -661,10 +668,11 @@ void * spi0(void *arg)
         SPI_Buf_init(&mcu->TxBuf);
         SPI_Buf_init(&mcu->RxBuf);
         mcu_num++;
-        if(mcu_num >= 36){
+        if(mcu_num >= SPI0_MAX_MCU_NUM){
             mcu_num = 0;
         }
         mcu = &MCUs[mcu_num];
+        usleep(10000);
     }
 
     //thread error...
@@ -677,7 +685,7 @@ void * spi2(void *arg)
 {
     arg = arg;
     int ret;
-    uint8_t mcu_num = 72;
+    uint8_t mcu_num = SPI0_MAX_MCU_NUM;
     MCU_TypeDef *mcu = &MCUs[mcu_num];
     struct spi_ioc_transfer tr;
 
@@ -715,10 +723,12 @@ void * spi2(void *arg)
         SPI_Buf_init(&mcu->TxBuf);
 
         mcu_num++;
-        if(mcu_num >= MCU_NUMS){
-            mcu_num = 72;
+        if(mcu_num >= SPI2_MAX_MCU_NUM){
+            mcu_num = SPI0_MAX_MCU_NUM;
         }
         mcu = &MCUs[mcu_num];
+
+        usleep(10000);
     }
 
     //thread error...

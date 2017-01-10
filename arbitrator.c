@@ -1,331 +1,381 @@
-#include <errno.h>
-#include <fcntl.h>
+/********************************************************************
+2016/12/5 v1.0: set GPIO in or out ot interrupt
+*********************************************************************/
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <termios.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
-#include <sys/select.h>
-#include <stdint.h>
+#include <errno.h>
+#include <string.h>
+#include <poll.h>
 
-#define ARBI_TRANS_COMPLETE         (uint8_t)(0xff)
-#define ARBI_TRANS_ERROR            (uint8_t)(0xee)
-#define ARBI_TRANS_RESET            (uint8_t)(0xdd)
-#define MCU_GROUP_0                 (uint8_t)(0)
-#define MCU_GROUP_1                 (uint8_t)(36)
-#define MCU_GROUP_2                 (uint8_t)(72)
-#define MCU_GROUP_3                 (uint8_t)(108)
+#include "types.h"
+//#include "log.h"
 
-#define ARBITRATOR_NUMS             (uint8_t)(3)
-#define MCU_ON_ARBI_NUMS            (uint8_t)(36)
-#define MAX_RETYR_TIMES             (uint8_t)(3)
+#define SYSFS_GPIO_DIR "/sys/class/gpio"
+#define GPIO_LED 41
+#define MAX_BUF 60
+#define POLL_TIMEOUT (3 * 1000) /* 3 seconds */
+#define OUT 1
+#define IN 0
 
-
-static int Arbi_fd[3];
-
-static int set_interface_attribs(int fd, int speed)
+/**
+ * brief: export the GPIO to user space
+ * @Param: gpio: the GPIO number
+ */
+int gpio_export(unsigned int gpio)
 {
-    struct termios tty;
-
-    if (tcgetattr(fd, &tty) < 0) {
-        printf("Error from tcgetattr: %s\n", strerror(errno));
-        return -1;
-    }
-
-    cfsetospeed(&tty, (speed_t)speed);
-    cfsetispeed(&tty, (speed_t)speed);
-
-    tty.c_cflag |= (CLOCAL | CREAD);    /* ignore modem controls */
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;         /* 8-bit characters */
-    tty.c_cflag &= ~PARENB;     /* no parity bit */
-    tty.c_cflag &= ~CSTOPB;     /* only need 1 stop bit */
-    tty.c_cflag &= ~CRTSCTS;    /* no hardware flowcontrol */
-
-    /* setup for non-canonical mode */
-    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    tty.c_oflag &= ~OPOST;
-
-    /* fetch bytes as they become available */
-    tty.c_cc[VMIN] = 1;
-    tty.c_cc[VTIME] = 1;
-
-    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        printf("Error from tcsetattr: %s\n", strerror(errno));
-        return -1;
-    }
-    return 0;
-}
-
-/*******************************************************************
-* 名称： UART0_Recv
-* 功能： 接收串口数据
-* 入口参数： fd :文件描述符
-* recv :接收串口中数据存入recv
-* data_len :一帧数据的长度
-* 出口参数： 正确返回为0，错误返回为-1
-*******************************************************************/
-static int uart_recv(int fd, uint8_t *recv)
-{
-    int fs_sel;
-    fd_set fs_read;
-    struct timeval time;
-    char rcv_buf[2] = {0,0};
-
-    FD_ZERO(&fs_read);
-    FD_SET(fd,&fs_read);
-
-    time.tv_sec = 0;
-    /**********************************
-     * In a single time out test ,900us
-     * is a suitable timer value of loop
-     * communication by 460800
-     * *******************************/
-    time.tv_usec = 100;
-
-    //使用select实现串口的多路通信
-    fs_sel = select(fd+1,&fs_read,NULL,NULL,&time);
-    if(fs_sel > 0){
-        if(read(fd,rcv_buf,1) > 0){
-            *recv = rcv_buf[0];
-            //printf("Recv:%02X\n",*recv);
-            return 0;
+       int fd ,len;
+        char buf[MAX_BUF];
+        fd = open(SYSFS_GPIO_DIR "/export" ,O_WRONLY);
+        if (fd < 0) {
+                perror("gpio/export");
+                return fd;
         }
-        else{
-            printf("Recevie Error.\n");
-            return -1;
-        }
-    } else if(fs_sel == 0){
-        printf("Receive time out.\n");
-        return -1;
-    }else {
-        printf("Receive error.\n");
-        return -1;
-    }
+        len = snprintf(buf ,sizeof(buf) ,"%d" ,gpio);
+        write(fd ,buf ,len);
+        close(fd);
+       return 0;
 }
 
 /**
- * @brief uart_send
- * send one byte mcu number
- * @param fd
- * @param mcu_num
- * @return -1:fail,0:success
+ * brief: unexport the GPIO to user space
+ * @Param: gpio: the GPIO number
  */
-static int uart_send(int fd, uint8_t mcu_num)
+int gpio_unexport(unsigned int gpio)
 {
-//    printf("Send:%02X || ", mcu_num);
-    uint8_t buf[2] = {0,0};
-    int len = -1;
-
-    buf[0] = mcu_num;
-    len = write(fd, buf, 1);
-    if (len != 1){
-        printf("Error in function: %s.\n",__func__);
-        return -1;
-    }
-    tcdrain(fd);    //delay for output
-
-    return 0;
+        int fd ,len;
+        char buf[MAX_BUF];
+        fd = open(SYSFS_GPIO_DIR "/unexport" ,O_WRONLY);
+        if (fd < 0) {
+                perror("gpio/unexport");
+                return fd;
+        }
+        len = snprintf(buf ,sizeof(buf) ,"%d" ,gpio);
+        write(fd ,buf ,len);
+        close(fd);
+        return 0;
 }
 
 /**
- * @brief Arbitrator_Init
- * Initialize arbitrators uart.
- * @return -1:fail,0:success
+ * brief: configure GPIO for input or output
+ * @Param: gpio: the GPIO number
+ * @Param: out_flag: the flag of output or input.It's value can be 1 or 0.
  */
-int Arbitrator_Init(void)
+int gpio_set_dir(unsigned int gpio ,int out_flag)
 {
-    char const *uart_dev[] ={
-        "/dev/ttySACS1",
-        "/dev/ttySACS2",
-        "/dev/ttySACS3"
-    };
-    uint8_t i = 0,retry = 0;
-    uint8_t result = -1;
-
-    for (i = 0;i < ARBITRATOR_NUMS;i++){
-        printf("Reset arbitrator[%d]...\n",i);
-        Arbi_fd[i] = open(uart_dev[i], O_RDWR | O_NOCTTY | O_SYNC);
-        if (Arbi_fd[i] < 0) {
-            printf("Error opening %s: %s\n", uart_dev[i], strerror(errno));
-            return -1;
+        int fd;
+        char buf[MAX_BUF];
+        snprintf(buf, sizeof(buf), SYSFS_GPIO_DIR "/gpio%d/direction", gpio);
+        fd = open(buf ,O_WRONLY);
+        if (fd < 0) {
+                perror(buf);
+                return fd;
         }
-        /*baudrate 460800, 8 bits, no parity, 1 stop bit */
-        if(set_interface_attribs(Arbi_fd[i], B460800) != 0)printf("Uart[%d] set error.\n",i);
-
-        retry = 0;
-        //Reset Arbitrators
-        do{
-            if(uart_send(Arbi_fd[i], ARBI_TRANS_RESET) != 0)retry++;
-            else break;
-        }while(retry < MAX_RETYR_TIMES);
-
-        if(retry > MAX_RETYR_TIMES){
-            printf("Reset arbitrator[%d] error, write failed.\n", i);
-            return -1;
-        }
-
-        retry = 0;
-        do{
-            if(uart_recv(Arbi_fd[i], &result) != 0)retry++;
-            else break;
-        }while(retry < MAX_RETYR_TIMES);
-
-        if(retry > MAX_RETYR_TIMES){
-            printf("Reset arbitrator[%d] error, read failed.\n", i);
-            return -1;
-        }
-        if(result != ARBI_TRANS_RESET){
-            printf("\nReset arbitrator[%d] failed.\n",i);
-            return -1;
-        }
-    }
-    return 0;
+        if (out_flag)
+                write(fd ,"out" ,4);
+        else
+                write(fd ,"in" ,3);
+        close(fd);
+        return 0;
 }
 
 /**
- * @brief release_arbitrator
- * @param arbi
- * @param trys
- * @return
+ * brief: Set the value of GPIO
+ * @Param: gpio: the GPIO number
+ * @Param: value: the value of GPIO. Supports values of 0 and 1.
  */
-/*
-static int release_arbitrator(uint8_t arbi, uint8_t trys)
-{
-    int retry = 0;
-    uint8_t result;
-//    printf("Release arbitrator[%d].\n", arbi);
-    if(arbi >= ARBITRATOR_NUMS){
-        printf("Arbitrator number error.\n");
-        return -1;
-    }
-
-    while(uart_send(Arbi_fd[arbi], ARBI_TRANS_COMPLETE) != 0){
-        if(++retry > trys)break;
-    }
-
-    if(retry > trys){
-        printf("Release arbitrator[%d] error.\n", arbi);
-        return -1;
-    }
-    retry = 0;
-
-    while(uart_recv(Arbi_fd[arbi], &result) != 0){
-        if(++retry > trys)break;
-    }
-    if(retry > trys){
-        printf("Release arbitrator[%d] error.\n", arbi);
-        return -1;
-    }
-
-    if(result != ARBI_TRANS_COMPLETE){
-        printf("Clear arbitrator[%d] error.\n", arbi);
-        return -1;
-    }
-
-    return 0;
-}
-*/
-/**
- * @brief Arbitrator
- * @param mcu_num
- * @return
- */
-int Arbitrator(uint8_t mcu_num)
+int gpio_set_value(unsigned int gpio, unsigned int value)
 {
     int fd;
-    uint8_t result = -1;
+    char buf[MAX_BUF];
+    snprintf(buf, sizeof(buf), SYSFS_GPIO_DIR "/gpio%d/value", gpio);
+    fd = open(buf, O_WRONLY);
+    if (fd < 0) {
+        perror("gpio/set-value");
+        return fd;
+    }
+    if (value)
+        write(fd, "1", 2);
+    else
+        write(fd, "0", 2);
+    close(fd);
+    return 0;
+}
 
-    if(mcu_num < 36){          //0~35
-        fd = Arbi_fd[0];
-    }else if(mcu_num > 71){        //72~107
-        fd = Arbi_fd[2];
-    }else{
-        //mcu_num error
+/**
+ * brief: get the value of GPIO
+ * @Param: gpio: the GPIO number
+ * @Param: value: pointer to the value of GPIO
+ */
+int gpio_get_value(unsigned int gpio, unsigned int *value)
+{
+        int fd;
+        char ch;
+        char buf[MAX_BUF];
+        snprintf(buf ,sizeof(buf), SYSFS_GPIO_DIR "/gpio%d/value" ,gpio);
+        fd = open(buf ,O_RDONLY);
+       if (fd < 0) {
+                perror("gpio_get_value");
+                return fd;
+        }
+        read(fd ,&ch ,1);
+        if (ch == '1')
+                *value = 1;
+        else if(ch == '0')
+              *value = 0;
+        close(fd);
+        return 0;
+}
+
+/**
+ * brief: set the edge that trigger interrupt
+ * @Param: gpio: the GPIO number
+ * @Param: edge:  edge that trigger interrupt
+ */
+int gpio_set_edge(unsigned int gpio ,char *edge)
+{
+        int fd;
+        char buf[MAX_BUF];
+        snprintf(buf ,sizeof(buf) ,SYSFS_GPIO_DIR "/gpio%d/edge" ,gpio);
+        fd = open(buf ,O_WRONLY);
+        if (fd < 0) {
+                perror("gpio_set_edge");
+                return fd;
+        }
+//gpio_set_edge(gpio, "rising");
+        write(fd ,edge ,strlen(edge) + 1);
+        close(fd);
+        return 0;
+}
+
+/**
+ * brief: open gpio device and return the file descriptor
+ * @Param: gpio: the GPIO number
+ */
+int gpio_fd_open(unsigned int gpio)
+{
+    int fd, len;
+    char buf[MAX_BUF];
+    len = snprintf(buf, sizeof(buf), SYSFS_GPIO_DIR "/gpio%d/value", gpio);
+    if(len < MAX_BUF){
+        printf("GPIO directory error.\n");
         return -1;
     }
+    fd = open(buf, O_RDONLY | O_NONBLOCK );
+    if (fd < 0) {
+        perror("gpio/fd_open");
+    }
+    return fd;
+}
 
-    //send mcu_num
-    uint8_t retry_times = 0;
-repeat:
+/**
+ * brief: close gpio device
+ * @Param: fd: the file descriptor of gpio
+ */
+int gpio_fd_close(int fd)
+{
+    return close(fd);
+}
 
-    if(++retry_times > MAX_RETYR_TIMES)return -1;
+#define DC_POWER_PIN        25
+#define RESET_PIN           26
 
-    while(uart_send(fd, mcu_num % MCU_ON_ARBI_NUMS) != 0);
-    //recv result
-    while(uart_recv(fd, &result) != 0);
+void GPIO_OUT(unsigned int gpio,unsigned int value)
+{
+    gpio_export(gpio);
+    gpio_set_dir(gpio, OUT);
+    gpio_set_value(gpio, value);
+    gpio_unexport(gpio);
+}
 
-    switch (result) {
-    case ARBI_TRANS_COMPLETE://never been here
-        //complete
-    case ARBI_TRANS_ERROR:
-        //mcu_num error retry
-    case ARBI_TRANS_RESET://never been here
-        //reset all mcus
-        goto repeat;
-        break;
-    default:
-        if(result != (mcu_num % MCU_ON_ARBI_NUMS)){//error,try again
-            goto repeat;
+void DC_Power_ON(void){
+    //5V DC Power ON
+    GPIO_OUT(DC_POWER_PIN, 1);
+}
+
+void DC_Power_OFF(void){
+    //5V DC Power ON
+    GPIO_OUT(DC_POWER_PIN, 0);
+}
+void Card_Board_Reset_ON(void){
+    GPIO_OUT(RESET_PIN, 0);
+}
+
+void Card_Board_Reset_OFF(void){
+    GPIO_OUT(RESET_PIN, 1);
+}
+
+int Arbitrator_Init(void){
+    unsigned int gpio;
+
+    //SPI0
+    //GPIOA0~GPIOA7
+    for(gpio = 0;gpio < 8;gpio++){
+        if(0 != gpio_export(gpio)){
+            printf("[%s:%d]Arbitrator initialize failed:export GPIOA%d error.\n", __FILE__, __LINE__, gpio);
+            return -1;
         }
-        break;
+        if(0 != gpio_set_dir(gpio, OUT)){
+            printf("[%s:%d]Arbitrator initialize failed:set GPIOA%d direction error.\n", __FILE__, __LINE__, gpio);
+            return -1;
+        }
+        if(0 != gpio_set_value(gpio, 1)){
+            printf("Reset SPI0 GPIO pin group value in 1 failed.\n");
+            return -1;
+        }
+    }
+
+    //SPI2
+    //GPIOA17~GPIOA24
+    for(gpio = 17;gpio < 25;gpio++){
+        if(0 != gpio_export(gpio)){
+            printf("[%s:%d]Arbitrator initialize failed:export GPIOA%d error.", __FILE__, __LINE__, gpio);
+            return -1;
+        }
+        if(0 != gpio_set_dir(gpio, OUT)){
+            printf("[%s:%d]Arbitrator initialize failed:set GPIOA%d direction error.", __FILE__, __LINE__, gpio);
+            return -1;
+        }
+        if(0 != gpio_set_value(gpio, 1)){
+            printf("Reset SPI2 GPIO pin group value in 1 failed.\n");
+            return -1;
+        }
     }
 
     return 0;
 }
 
-#ifdef MOUDULE_TEST
-
-#define TIME_ON 1
-
-#if TIME_ON == 1
-
-#include <sys/time.h>
-
-double time_use(struct timeval *start_time, struct timeval *end_time)
+#define SPI0_ADDR_CS                        7
+#define SPI2_ADDR_CS                        24
+int Arbitrator(uint8_t mcu_num)
 {
-    double timeuse;
-    return (timeuse = (double)1000000*(end_time->tv_sec - start_time->tv_sec) + end_time->tv_usec - start_time->tv_usec);
-}
+    unsigned int gpio;
+    uint8_t bits;
 
-#endif
-
-/***************************************************************
- * only for moudule test
- * ************************************************************/
-
-int main()
-{
-    int res;
-#if TIME_ON == 1
-    struct timeval start_time,end_time;
-#endif
-    printf("Initial arbitrator...\n");
-
-    res = Arbitrator_Init();
-    if(res != 0){
-        printf("Arbitration Initialize Error!\n");
-        return -1;
-    }
-    int i;
-    printf("Select a channel.\n");
-#if TIME_ON == 1
-    gettimeofday(&start_time, 0);
-#endif
-
-    for(i = 0;i < 108;i++){
-        printf("Communicate with MCU[%d].\n",i);
-        if(Arbitrator(i) != 0){
-            printf("Arbitrate Error at MCU[%d].\n",i);
-            break;
+    if(mcu_num < 72){//SPI0
+        //recovery
+        bits = mcu_num;
+        if(0 != gpio_set_value(SPI0_ADDR_CS, 0)){
+            printf("SPI0 arbitrator clear failed.\n");
+            return -1;
+        }
+        for(gpio = 0;gpio < 7;gpio++){
+            if(bits & 0x01){
+                if(0 != gpio_set_value(gpio, 1))return -1;
+            } else {
+                if(0 != gpio_set_value(gpio, 0))return -1;
+            }
+            bits >>= 1;
+        }
+        if(0 != gpio_set_value(SPI0_ADDR_CS, 1)){
+            printf("SPI0 arbitrator clear failed.\n");
+            return -1;
+        }
+    } else {
+        //recovery
+        bits = mcu_num - 72;
+        if(0 != gpio_set_value(SPI2_ADDR_CS, 1)){
+            printf("SPI2 arbitrator clear failed.\n");
+            return -1;
+        }
+        for(gpio = 17;gpio < 24;gpio++){
+            if(bits & 0x01){
+                if(0 != gpio_set_value(gpio, 1))return -1;
+            } else {
+                if(0 != gpio_set_value(gpio, 0))return -1;
+            }
+            bits >>= 1;
+        }
+        if(0 != gpio_set_value(SPI2_ADDR_CS, 1)){
+            printf("SPI2 arbitrator clear failed.\n");
+            return -1;
         }
     }
-#if TIME_ON == 1
-    gettimeofday(&end_time, 0);
 
-    printf("Time use:%lf us.\n", time_use(&start_time, &end_time));
-#endif
     return 0;
 }
-#endif
+
+///**
+// * @brief: main function
+// * @Param: argc: number of parameters
+// * @Param: argv: parameters list
+// */
+//int gpio_test(int argc, char **argv)
+//{
+//    struct pollfd *fdset;
+//    int nfds = 1;
+//    int gpio_fd, timeout, rc;
+//    char *buf[MAX_BUF];
+//    unsigned int gpio;
+//    int len;
+//    char *cmd;
+//    unsigned int value;
+
+//    fdset = (struct pollfd*)malloc(sizeof(struct pollfd));
+//    if (argc < 3) {
+//        printf("Usage: %s <gpio-pin> <direction> [value]\n\n", argv[0]);
+//        exit(-1);
+//    }
+//    cmd = argv[2];
+//    gpio = atoi(argv[1]);
+//    gpio_export(gpio);
+//    if (strcmp(cmd, "interrupt") == 0) {
+//            printf("\n**************************GPIO interrupt***************************\n");
+//              gpio_set_dir(gpio, IN);
+//                gpio_set_edge(gpio, "rising");
+//                gpio_fd = gpio_fd_open(gpio);
+//                /* GPIO_LED configure */
+//                //gpio_export(GPIO_LED);
+//                //gpio_set_dir(GPIO_LED, OUT);
+//                timeout = POLL_TIMEOUT;
+//                while (1) {
+//                    memset((void*)fdset, 0, sizeof(fdset));
+//                    fdset->fd = gpio_fd;
+//                    fdset->events = POLLPRI;
+//                    rc = poll(fdset, nfds, timeout);
+//                    if (rc < 0) {
+//                        printf("\npoll() failed!\n");
+//                        return -1;
+//                    }
+//                    if (rc == 0) {
+//                        printf(".");
+//                        /* LED off */
+//                        //gpio_set_value(GPIO_LED, 1);
+//                    }
+//                    if (fdset->revents & POLLPRI) {
+//                        len = read(fdset->fd, buf, MAX_BUF);
+//                        printf("\nGPIO %d interrupt occurred\n", gpio);
+//                        /* when GPIO interrupt occurred, LED turn on */
+//                        //gpio_set_value(GPIO_LED, 0);
+//                    }
+//                    fflush(stdout);
+//                }
+//         gpio_fd_close(gpio_fd);
+//    } else if (strcmp(cmd, "out") == 0) {
+//         gpio_set_dir(gpio, OUT);
+//                  if (argc = 4) {
+//                          gpio_set_value(gpio, atoi(argv[3]));
+//                          printf("gpio%d is set to %d\n", gpio, atoi(argv[3]));
+//                  }
+//    } else if (strcmp(cmd, "in") == 0) {
+//                  gpio_set_dir(gpio, IN);
+//                  printf("\n");
+//                  while (1) {
+//                          gpio_get_value(gpio, &value);
+//                          printf("\rvalue:%d", value);
+//                  }
+//    } else if (strcmp(cmd, "unexport") == 0) {
+//        gpio_unexport(gpio);
+//    } else {
+//                  printf("Usage: %s <gpio-pin> <direction> [value]\n\n", argv[0]);
+
+//        exit(-1);
+
+//          }
+
+//    return 0;
+//}
+

@@ -14,6 +14,10 @@
 /******************* sims.c ***********************/
 #define ENABLE                                          (uint8_t)1
 #define DISABLE                                         (uint8_t)0
+#define LOCK                                            (uint8_t)1
+#define UNLOCK                                          (uint8_t)0
+#define REGISTED                                        (uint8_t)1
+#define UNREGISTE                                       (uint8_t)0
 #define ON_LINE                                         (uint8_t)1
 #define OFF_LINE                                        (uint8_t)0
 #define APDU_TIME_OUT                                   (uint8_t)5
@@ -75,7 +79,7 @@ typedef enum{
     TRANS_ERR
 }DataType_TypeDef;
 /******************* SIM ************************/
-#define MCU_NUMS                                (uint8_t)108
+#define MCU_NUMS                                (uint8_t)144
 #define SIM_NUMS                                (uint8_t)0x05
 #define MAX_SIM_NUMS                            (SIM_NUMS*MCU_NUMS)
 
@@ -88,31 +92,31 @@ typedef enum{
 #define AUTH_STAGE_ACK1                         (uint8_t)0x02
 #define AUTH_STAGE_REQ2                         (uint8_t)0x03
 #define AUTH_STAGE_ACK2                         (uint8_t)0x04
-typedef struct {
+
+typedef struct S_APDU{
     uint8_t APDU[SIM_APDU_LENGTH];
     uint8_t length;
 }APDU_BUF_TypeDef;
 
-typedef struct{
-    uint8_t lock;
+typedef struct S_HeartBeat{
+    uint16_t time_out;
+    pthread_mutex_t lock;
+}HeartBeat_TypeDef;
+
+typedef struct S_SIM{
+    pthread_mutex_t lock;
     uint8_t ICCID[ICCID_LENGTH];
     uint8_t IMSI[IMSI_LENGTH];
     uint8_t AD;
     APDU_BUF_TypeDef Tx_APDU;
-    APDU_BUF_TypeDef Tx_APDU2;
     APDU_BUF_TypeDef RX_APDU;
-    struct timeval start,end;
-    double timeuse;
-    uint8_t apdu_enable;
-    uint8_t apdu_timeout;
-    uint8_t auth_step;
     uint8_t state;
     uint16_t sid;
     FILE *log;
 }SIM_TypeDef;
 
 //flags -- R read,N something new
-typedef struct{
+typedef struct S_MCU{
     SIM_TypeDef SIM[SIM_NUMS];
     SPI_Buf_TypeDef TxBuf;
     SPI_Buf_TypeDef RxBuf;
@@ -124,12 +128,12 @@ typedef struct{
     uint8_t SIM_CheckErrR,SIM_CheckErrN;
     uint8_t SIM_ResetTbl,SIM_StopTbl;
     uint8_t VersionR,VersionN;
-    uint8_t online;
-    uint8_t time_out;
+    uint8_t state;
+    HeartBeat_TypeDef heartbeat;
 }MCU_TypeDef;
 /******************* SIM end ************************/
 #define VSIM_NAME_LEN           14
-#define VSIM_SOCKET_BUF_LEN     1024
+#define VSIM_SOCKET_BUF_LEN     512
 #define SERVER_PORT             6666
 #define MAX_LINKS               720
 #define CLIENT_TIME_OUT_VALUE   30          //seconds.
@@ -145,7 +149,10 @@ typedef struct S_Client_Info{
     in_port_t port;
     int conn_fd;
     uint8_t device_name[VSIM_NAME_LEN];
+    uint8_t registed;
     uint16_t time_out;                      //unit second.
+    uint8_t buff[VSIM_SOCKET_BUF_LEN];
+    SIM_TypeDef *SIM;
     struct S_Client_Info *prev,*next;
 }Client_TypeDef;
 
